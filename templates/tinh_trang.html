@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Tình trạng sinh viên{% endblock %}
+{% block heading %}Tình trạng sinh viên · {{ hk }} · {{ nam }}{% endblock %}
+{% block actions %}
+<button type="button" class="btn" id="btnAdd">+ Thêm / sửa tình trạng</button>
+<a class="btn gray" id="btnExport" href="{{ url_for('tt_xuat', hk=hk, nam=nam, khoa=khoa) }}">Xuất Excel</a>
+{% endblock %}
+{% block body %}
+<style>
+  /* Vùng bảng tự cuộn trong khung; tiêu đề luôn dính phía trên */
+  .tbl-wrap{overflow:auto;max-height:calc(100vh - 280px);min-height:320px;border-top:1px solid #e5e7eb}
+  #tb{width:100% !important;font-size:13px;border-collapse:separate;border-spacing:0}
+  #tb th,#tb td{padding:6px 8px;white-space:nowrap;vertical-align:middle;background-clip:padding-box}
+  #tb th{white-space:normal;line-height:1.25;text-align:left}
+  #tb thead th{position:sticky;top:0;z-index:3;background:#f3f4f6}
+  /* Cột Lý do được xuống dòng thay vì kéo dài bảng */
+  #tb td:nth-child(15),#tb th:nth-child(15){white-space:normal;min-width:170px;max-width:260px}
+  #tb td:nth-child(8){white-space:normal;min-width:110px}
+
+  /* ---- Cột dính bên trái: checkbox, STT, MSSV ---- */
+  #tb .stk{position:sticky;z-index:2;background:#fff}
+  #tb thead .stk{z-index:4;background:#f3f4f6}
+  #tb .stk-c{left:0;width:38px;min-width:38px;max-width:38px;text-align:center}
+  #tb .stk-s{left:38px;width:46px;min-width:46px;max-width:46px;text-align:center}
+  #tb .stk-m{left:84px;width:96px;min-width:96px;box-shadow:2px 0 3px -1px rgba(0,0,0,.15)}
+  /* ---- Cột thao tác dính bên phải ---- */
+  #tb .stk-a{right:0;box-shadow:-2px 0 3px -1px rgba(0,0,0,.15);padding:4px 8px}
+  #tb td.act{display:table-cell}
+  #tb td.act .btn{margin:1px 0}
+  #tb .acts{display:flex;gap:4px;flex-wrap:nowrap}
+  #tb td a.lk{color:inherit;font-weight:600;text-decoration:none;border-bottom:1px dotted currentColor}
+
+  /* Giữ màu nền theo mức cảnh báo cho cả các cột dính */
+  #tb tr.l1 td{background:#fffbeb}
+  #tb tr.l2 td{background:#fef2f2}
+  #tb tr.l1 td.stk{background:#fffbeb}
+  #tb tr.l2 td.stk{background:#fef2f2}
+  #tb tbody tr:hover td{background:#eef6ff}
+
+  /* Màn hình hẹp: thu nhỏ thêm */
+  @media (max-width:1280px){
+    #tb{font-size:12px}
+    #tb th,#tb td{padding:5px 6px}
+  }
+</style>
+
+<div class="card">
+<form class="bar" method="get" id="fFilter">
+<label>Học kỳ<select name="hk">{% for h in HOC_KY %}<option {{ 'selected' if h==hk }}>{{ h }}</option>{% endfor %}</select></label>
+<label>Năm học<select name="nam">{% for n in nams %}<option {{ 'selected' if n==nam }}>{{ n }}</option>{% endfor %}</select></label>
+<label>Khoa<select name="khoa"><option value="">Tất cả</option>{% for k in khoas %}<option {{ 'selected' if k==khoa }}>{{ k }}</option>{% endfor %}</select></label>
+<noscript><button class="btn">Tải</button></noscript>
+</form>
+<details style="margin-top:12px"><summary style="cursor:pointer;color:var(--mut)">Nhập Excel xét tiến độ (cho {{ hk }} {{ nam }})</summary>
+<form class="bar" method="post" action="{{ url_for('tt_nhap') }}" enctype="multipart/form-data" style="margin-top:10px">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="hk" value="{{ hk }}"><input type="hidden" name="nam" value="{{ nam }}">
+<input type="file" name="file" accept=".xlsx" required><button class="btn gray">Nhập</button></form></details>
+<details style="margin-top:8px" {{ 'open' if request.args.get('ld') }}><summary style="cursor:pointer;color:var(--mut)">Nhập lý do từ Excel theo MSSV (cho {{ hk }} {{ nam }})</summary>
+<form class="bar" method="post" action="{{ url_for('tt_nhap_ly_do') }}" enctype="multipart/form-data" style="margin-top:10px">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="hk" value="{{ hk }}"><input type="hidden" name="nam" value="{{ nam }}">
+<input type="file" name="file" accept=".xlsx" required>
+<label style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" name="ghi_de" value="1"> Ghi đè lý do đã có</label>
+<button class="btn gray">Nhập lý do</button>
+<a class="btn sm" href="{{ url_for('tt_mau_ly_do', hk=hk, nam=nam) }}">Tải file mẫu (SV đang cảnh báo)</a></form>
+<div style="margin-top:6px;font-size:12px;color:var(--mut)">File .xlsx cần có 2 cột <b>MSSV</b> và <b>Lý do</b> (dòng tiêu đề nằm trong 15 dòng đầu). Chỉ cập nhật sinh viên đã có trong danh sách xét tiến độ của kỳ này; ô lý do trống sẽ bị bỏ qua.</div></details>
+</div>
+
+<div class="kpis">
+<div class="kpi"><div class="n">{{ rows|length }}</div><div class="l">Sinh viên xét tiến độ</div></div>
+<div class="kpi good"><div class="n">{{ dem['Bình thường'] }}</div><div class="l">Bình thường</div></div>
+<div class="kpi warn"><div class="n">{{ dem['Cảnh báo lần 1'] }}</div><div class="l">Cảnh báo lần 1</div></div>
+<div class="kpi bad"><div class="n">{{ dem['Cảnh báo lần 2'] }}</div><div class="l">Cảnh báo lần 2</div></div>
+</div>
+
+<div class="dt-card">
+<div class="tools"><div class="grow"><input id="q" type="search" placeholder="Tìm MSSV, họ tên, lớp, lý do… (không cần gõ dấu)"></div>
+<select id="fKq"><option value="">Kết quả: tất cả</option></select>
+<select id="fKh"><option value="">Khóa: tất cả</option></select></div>
+<div class="bulk" id="bulkbar"><span>Đã chọn <b id="bulkcount">0</b> sinh viên</span><span class="sp"></span>
+<button type="button" class="btn red sm" id="bulkdel">Xóa tình trạng đã chọn</button><button type="button" class="btn gray sm" id="bulkclear">Bỏ chọn</button></div>
+<div class="tbl-wrap">
+<table id="tb" class="stripe">
+<thead><tr><th class="nosort stk stk-c"><input type="checkbox" class="chk" id="chkAll" title="Chọn tất cả (theo kết quả lọc)"></th><th class="stt nosort stk stk-s">STT</th>
+<th class="stk stk-m">MSSV</th><th>Họ lót</th><th>Tên</th><th>Lớp</th><th>Khóa</th><th>Kết quả xét tiến độ học tập</th><th>ĐTB HK</th><th>XL HK</th><th>Nợ HK</th><th>ĐTB TL</th><th>XL TL</th><th>Nợ TL</th><th>Lý do</th><th class="nosort stk stk-a"></th></tr></thead>
+<tbody>
+{% for r in rows %}<tr data-mssv="{{ r.mssv }}" class="{{ 'l1' if r.ket_qua==KET_QUA[1] else 'l2' if r.ket_qua==KET_QUA[2] }}">
+<td class="stk stk-c"><input type="checkbox" class="chk" value="{{ r.mssv }}"></td><td class="stk stk-s"></td>
+<td class="stk stk-m"><a class="lk" href="{{ url_for('tt_chi_tiet', mssv=r.mssv, hk=hk, nam=nam) }}" title="Xem chi tiết">{{ r.mssv }}</a></td><td>{{ r.ho_lot }}</td><td>{{ r.ten }}</td><td>{{ r.ma_lop }}</td><td>{{ r.khoa_hoc }}</td><td>{{ r.ket_qua }}</td>
+<td>{{ r.dtb_hk if r.dtb_hk is not none }}</td><td>{{ r.xl_hk or '' }}</td><td>{{ r.no_hk if r.no_hk is not none }}</td><td>{{ r.dtb_tl if r.dtb_tl is not none }}</td><td>{{ r.xl_tl or '' }}</td><td>{{ r.no_tl if r.no_tl is not none }}</td><td>{{ r.ly_do or '' }}</td>
+<td class="act stk stk-a"><div class="acts"><a class="btn gray sm" href="{{ url_for('tt_chi_tiet', mssv=r.mssv, hk=hk, nam=nam) }}">Chi tiết</a> <a class="btn sm" href="{{ url_for('tt_sua', mssv=r.mssv, hk=hk, nam=nam) }}">{{ 'Nhập lý do' if r.ket_qua!=KET_QUA[0] and not r.ly_do else 'Sửa' }}</a> <button type="button" class="btn red sm btn-del">Xóa</button></div></td></tr>{% endfor %}
+</tbody></table>
+</div>
+</div>
+
+<dialog id="dlg"><form method="dialog" id="fDlg">
+<h3>Thêm / sửa tình trạng</h3>
+<label>Sinh viên (gõ MSSV hoặc họ tên rồi chọn)</label>
+<input id="dlgSv" list="dsSv" autocomplete="off" required>
+<datalist id="dsSv">{% for s in svs %}<option value="{{ s.mssv }} – {{ s.ho_lot }} {{ s.ten }}">{% endfor %}</datalist>
+<div class="hint">{{ hk }} · {{ nam }}</div>
+<div class="row"><button type="button" class="btn gray" id="dlgCancel">Hủy</button><button class="btn">Tiếp tục</button></div>
+</form></dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+const HK = {{ hk|tojson }}, NAM = {{ nam|tojson }}, KHOA = {{ khoa|tojson }};
+const t = initTable('#tb');
+const bulk = bulkSelect(t);
+colFilter(t, '#fKq', 7); colFilter(t, '#fKh', 6);
+document.querySelectorAll('#fFilter select').forEach(s => s.addEventListener('change', () => s.form.submit()));
+
+// Link xuất Excel theo bộ lọc hiện tại
+function capNhatXuat() {
+  const p = new URLSearchParams({hk: HK, nam: NAM, khoa: KHOA, kq: $('#fKq').val(), kh: $('#fKh').val(), q: $('#q').val()});
+  document.getElementById('btnExport').href = '{{ url_for("tt_xuat") }}?' + p;
+}
+$('#fKq,#fKh').on('change', capNhatXuat); $('#q').on('input', capNhatXuat);
+
+async function xoa(ds, ok) {
+  if (!ds.length) return;
+  if (!ok && !confirm('Xóa tình trạng của ' + ds.length + ' sinh viên trong ' + HK + ' năm học ' + NAM + '?\n(Sinh viên vẫn được giữ lại.)')) return;
+  try {
+    const j = await postJSON('{{ url_for("tt_xoa_nhieu") }}', {mssvs: ds, hoc_ky: HK, nam_hoc: NAM});
+    t.rows(function (i, data, node) { return ds.includes(node.dataset.mssv); }).remove().draw(false);
+    bulk.update(); toast('Đã xóa ' + j.da_xoa + ' dòng.', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+}
+$('#bulkdel').on('click', () => xoa(bulk.sel()));
+$('#tb tbody').on('click', '.btn-del', function () { xoa([$(this).closest('tr').attr('data-mssv')]); });
+
+const dlg = document.getElementById('dlg');
+document.getElementById('btnAdd').onclick = () => { document.getElementById('dlgSv').value = ''; dlg.showModal(); };
+document.getElementById('dlgCancel').onclick = () => dlg.close();
+document.getElementById('fDlg').addEventListener('submit', e => {
+  e.preventDefault();
+  const mssv = document.getElementById('dlgSv').value.split(/\s|–/)[0].trim(); if (!mssv) return;
+  location.href = '{{ url_for("tt_sua", mssv="__M__") }}'.replace('__M__', encodeURIComponent(mssv)) +
+    '?' + new URLSearchParams({hk: HK, nam: NAM});
+});
+
+// ---- Trợ lý AI
+const KQ = {bt: 'Bình thường', l1: 'Cảnh báo lần 1', l2: 'Cảnh báo lần 2'};
+const infoTt = tr => {
+  const c = i => tr.cells[i].textContent.trim(), v = parseFloat(c(8).replace(',', '.'));
+  return {num: isNaN(v) ? null : v, kq: c(7), lop: c(5), khoaHoc: c(6), lyDo: c(14),
+    text: norm(tr.dataset.mssv + ' ' + c(3) + ' ' + c(4) + ' ' + c(5) + ' ' + c(6)).toLowerCase()};
+};
+const kqRule = (re, label, test) => ({re, label, group: 'kq', test});
+AI.register({
+  table: t, bulk, noun: 'sinh viên', numLabel: 'ĐTB HK', stop: ['dtb', 'hk', 'canh', 'bao'], has: {lop: true, khoaHoc: true},
+  deleteVerb: 'Xóa tình trạng của', info: infoTt,
+  rules: [
+    {re: /\b(chua co ly do|thieu ly do|chua ly do|chua nhap ly do)\b/, label: 'Chưa có lý do', test: i => i.kq !== KQ.bt && !i.lyDo},
+    kqRule(/\b(canh bao )?lan 2\b/, 'Cảnh báo lần 2', i => i.kq === KQ.l2),
+    kqRule(/\b(canh bao )?lan 1\b/, 'Cảnh báo lần 1', i => i.kq === KQ.l1),
+    kqRule(/\bbinh thuong\b/, 'Bình thường', i => i.kq === KQ.bt),
+    kqRule(/\bcanh bao\b/, 'Đang cảnh báo', i => i.kq !== KQ.bt)],
+  actions: {delete: ds => xoa(ds, true), add: () => document.getElementById('btnAdd').click(),
+    export: () => document.getElementById('btnExport').click()},
+  examples: ['cảnh báo lần 2', 'cảnh báo chưa có lý do', 'ĐTB dưới 2', 'khóa 21 cảnh báo', 'chọn cảnh báo lần 1', 'xóa bình thường', 'xuất excel', 'tóm tắt'],
+  insights() {
+    const rows = t.rows().nodes().toArray().map(infoTt), tong = rows.length, out = [];
+    if (!tong) return out;
+    const w = rows.filter(r => r.kq !== KQ.bt), l2 = rows.filter(r => r.kq === KQ.l2).length, nol = w.filter(r => !r.lyDo).length;
+    if (w.length) out.push({text: w.length + '/' + tong + ' sinh viên (' + Math.round(100 * w.length / tong) + '%) đang bị cảnh báo học tập.', q: 'cảnh báo'});
+    if (l2) out.push({text: l2 + ' sinh viên cảnh báo lần 2 – nguy cơ cao, cần ưu tiên hỗ trợ.', q: 'cảnh báo lần 2'});
+    if (nol) out.push({text: nol + ' sinh viên bị cảnh báo nhưng chưa có lý do.', q: 'cảnh báo chưa có lý do'});
+    const g = {}; w.forEach(r => { const k = (/\d+/.exec(r.khoaHoc) || [])[0]; if (k) g[k] = (g[k] || 0) + 1; });
+    const top = Object.entries(g).sort((a, b) => b[1] - a[1])[0];
+    if (top) out.push({text: 'Khóa ' + top[0] + ' có nhiều sinh viên bị cảnh báo nhất (' + top[1] + ').', q: 'khóa ' + top[0] + ' cảnh báo'});
+    return out;
+  }
+});
+</script>{% endblock %}

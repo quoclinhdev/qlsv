@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block body %}
+<form method="post" class="card"><h2>{{ sv.mssv }} – {{ sv.ho_lot }} {{ sv.ten }}</h2><p class="hint">Xét tiến độ {{ hk }} năm học {{ nam }} · Lớp {{ sv.ma_lop }}</p>
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label>Kết quả xét tiến độ học tập</label><select name="ket_qua">{% for k in KET_QUA %}<option {{ 'selected' if k==t['ket_qua'] }}>{{ k }}</option>{% endfor %}</select>
+<label>Lý do (admin nhập)</label><textarea name="ly_do" rows="4" placeholder="VD: ĐTB học kỳ dưới mức quy định; nợ quá số tín chỉ cho phép...">{{ t['ly_do'] or '' }}</textarea>
+{% for k,l in [('dtb_hk','ĐTB học kỳ'),('stc_hk','STC học kỳ'),('xl_hk','Xếp loại học kỳ'),('no_hk','STC nợ học kỳ'),('dtb_tl','ĐTB toàn khóa'),('stc_tl','STC toàn khóa'),('xl_tl','Xếp loại toàn khóa'),('no_tl','STC nợ toàn khóa')] %}
+<label>{{ l }}</label><input name="{{ k }}" value="{{ t[k] if t[k] is not none else '' }}">{% endfor %}
+<p><button class="btn">Lưu</button> <a class="btn gray" href="{{ url_for('tinh_trang', hk=hk, nam=nam) }}">Hủy</a></p></form>{% endblock %}

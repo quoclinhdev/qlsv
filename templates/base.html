@@ -1,0 +1,37 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Quản lý sinh viên{% endblock %}</title>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+</head><body>
+<div class="app">
+<aside class="side">
+  <div class="brand"><span class="logo">SV</span><span>Quản lý<br>sinh viên</span></div>
+  <nav>
+    <a href="{{ url_for('sinh_vien') }}" class="{{ 'on' if request.endpoint in ('sinh_vien','sv_them','sv_sua') }}"><i>👥</i>Sinh viên</a>
+    <a href="{{ url_for('drl') }}" class="{{ 'on' if request.endpoint=='drl' }}"><i>⭐</i>Điểm rèn luyện</a>
+    <a href="{{ url_for('tinh_trang') }}" class="{{ 'on' if request.endpoint in ('tinh_trang','tt_sua') }}"><i>📋</i>Tình trạng sinh viên</a>
+    <a href="{{ url_for('cham_diem') }}" class="{{ 'on' if request.endpoint=='cham_diem' }}"><i>✅</i>Chấm điểm</a>
+  </nav>
+</aside>
+<div class="content">
+  <header class="top"><h1>{% block heading %}Quản lý sinh viên{% endblock %}</h1><button type="button" id="aiOpen" class="ai-trigger" hidden><span class="spark">✦</span><span class="t">Hỏi hoặc ra lệnh bằng tiếng Việt…</span><kbd>Ctrl K</kbd></button>
+  <div class="top-actions">{% block actions %}{% endblock %}</div></header>
+  <main>{% for cat,m in get_flashed_messages(with_categories=true) %}<div class="msg {{ cat }}">{{ m }}</div>{% endfor %}
+  <div id="aiActive" class="ai-active" hidden></div>
+  <section id="aiPanel" class="ai-panel" hidden><div class="ai-panel-head"><span class="spark">✦</span><b>Trợ lý phân tích</b><span class="sp"></span><button type="button" id="aiRefresh" class="btn gray sm" title="Phân tích lại">↻</button></div><ul id="aiList"></ul></section>
+  {% block body %}{% endblock %}</main>
+</div></div>
+<dialog id="aiDlg" class="ai-dlg"><div class="ai-box">
+  <div class="ai-head"><span class="spark">✦</span><input id="aiInput" placeholder="Ví dụ: điểm dưới 50, chưa nhập, xóa yếu hoặc kém…" autocomplete="off"><kbd>Esc</kbd></div>
+  <div id="aiPrev" class="ai-prev"></div><div id="aiSugg" class="ai-sugg"></div>
+  <div class="ai-foot"><span><kbd>↵</kbd> thực hiện</span><span><kbd>Esc</kbd> đóng</span><span>✦ Chạy ngay trên trình duyệt, dữ liệu không gửi ra ngoài</span></div>
+</div></dialog>
+<div id="toast"></div>
+<script>window.CSRF = {{ csrf_token()|tojson }};</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ url_for('static', filename='ai.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body></html>

@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+{% block title %}Điểm rèn luyện{% endblock %}
+{% block heading %}Điểm rèn luyện · {{ hk }} · {{ nam }}{% endblock %}
+{% block actions %}
+<button type="button" class="btn" id="btnAdd">+ Thêm điểm</button>
+<a class="btn gray" href="{{ url_for('drl_xuat', hk=hk, nam=nam, lop=lop) }}">Xuất Excel</a>
+{% endblock %}
+{% block body %}
+{% set RANK = {'Xuất sắc':6,'Tốt':5,'Khá':4,'TB':3,'Yếu':2,'Kém':1,'Nghỉ':0,'Bảo lưu':0,'Không nộp':0} %}
+<style>
+#tb .btn-del{margin-left:14px}
+#dist span,#legend span{cursor:pointer;transition:opacity .15s}
+#legend span{padding:2px 8px;border-radius:12px;border:1px solid transparent}
+#legend span.on{border-color:currentColor;background:rgba(37,99,235,.08)} #legend span.dim,#dist span.dim{opacity:.35}
+#dist span.on{outline:2px solid #111;outline-offset:1px}
+.kpi[data-tt]{cursor:pointer} .kpi.on{outline:2px solid #f59e0b}
+#saveState{position:fixed;left:18px;bottom:18px;z-index:80;padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;
+  background:#ecfdf5;color:#047857;box-shadow:0 4px 14px rgba(0,0,0,.15);display:none}
+#saveState.dirty{background:#fef3c7;color:#92400e} #saveState.err{background:#fee2e2;color:#b91c1c} #saveState.show{display:block}
+#tb tbody td:nth-child(3){color:var(--pri,#2563eb);font-weight:600;cursor:pointer}
+#tb tbody td:nth-child(3):hover,#tb tbody td:nth-child(5):hover{text-decoration:underline}
+#tb tbody td:nth-child(4),#tb tbody td:nth-child(5){cursor:pointer}
+#svMask{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:90}
+#svDrawer{position:fixed;top:0;right:0;height:100%;width:min(500px,100%);background:var(--card,#fff);z-index:100;
+  box-shadow:-8px 0 30px rgba(0,0,0,.2);transform:translateX(100%);transition:transform .2s;display:flex;flex-direction:column}
+body.sv-open #svDrawer{transform:none} body.sv-open #svMask{display:block}
+#svDrawer header{display:flex;align-items:flex-start;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line,#e3e8ef)}
+#svDrawer header h3{margin:0;font-size:17px} #svDrawer header .sub{font-size:12px;color:var(--mut,#667085)}
+#svDrawer .body{flex:1;overflow:auto;padding:14px 18px}
+#svDrawer h4{margin:18px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut,#667085)}
+#svDrawer dl{display:grid;grid-template-columns:100px 1fr;gap:6px 10px;margin:0;font-size:14px}
+#svDrawer dt{color:var(--mut,#667085)} #svDrawer dd{margin:0;font-weight:500}
+#svDrawer table{width:100%;border-collapse:collapse;font-size:13px}
+#svDrawer th,#svDrawer td{padding:5px 6px;border-bottom:1px solid var(--line,#e3e8ef);text-align:left}
+#svDrawer tr.cur td{background:rgba(37,99,235,.08);font-weight:600}
+#svDrawer .tag{display:inline-block;padding:1px 8px;border-radius:10px;background:#eef2ff;font-size:12px;color:#111}
+#svDrawer .tag.w{background:#fef3c7} #svDrawer .empty{color:var(--mut,#667085);font-size:13px}
+#svDrawer .hero{display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--line,#e3e8ef);border-radius:10px}
+#svDrawer .hero .n{font-size:34px;font-weight:700;line-height:1} #svDrawer .hero .ld{font-size:13px;margin-top:6px}
+#svDrawer .bar{height:8px;border-radius:4px;background:#e5e7eb;min-width:90px;overflow:hidden} #svDrawer .bar i{display:block;height:100%}
+#svDrawer footer{padding:12px 18px;border-top:1px solid var(--line,#e3e8ef);display:flex;gap:8px;flex-wrap:wrap}
+#tb input.diem.err,#tb input.lydo.err{outline:2px solid #dc2626}
+#tb input.lydo{width:100%;min-width:240px}
+#tb input.lydo.thieu{outline:2px solid #f59e0b;background:#fffbeb}
+#tb input.lydo:disabled{background:transparent;border-color:transparent}
+</style>
+<div id="saveState" role="status" aria-live="polite"></div>
+<div id="svMask"></div>
+<aside id="svDrawer" aria-hidden="true">
+  <header><div style="flex:1"><h3 id="svName">—</h3><div class="sub" id="svSub"></div></div>
+  <button type="button" class="btn gray sm" id="svClose">Đóng ✕</button></header>
+  <div class="body" id="svBody"></div>
+  <footer><button type="button" class="btn sm" id="svEditDrl">Sửa điểm kỳ này</button>
+  <a class="btn gray sm" id="svFull" href="#">Hồ sơ tình trạng đầy đủ</a></footer>
+</aside>
+<div class="card">
+<form class="bar" method="get" id="fFilter">
+<label>Học kỳ<select name="hk">{% for h in HOC_KY %}<option {{ 'selected' if h==hk }}>{{ h }}</option>{% endfor %}</select></label>
+<label>Năm học<select name="nam">{% for n in nams %}<option {{ 'selected' if n==nam }}>{{ n }}</option>{% endfor %}</select></label>
+<label>Lớp<select name="lop"><option value="">Tất cả</option>{% for l in lops %}<option {{ 'selected' if l==lop }}>{{ l }}</option>{% endfor %}</select></label>
+<noscript><button class="btn">Tải danh sách</button></noscript>
+</form>
+<details style="margin-top:12px"><summary style="cursor:pointer;color:var(--mut)">Nhập điểm từ Excel (cột MSSV + ĐIỂM, hoặc MSSV + Ghi chú Nghỉ/Bảo lưu/Không nộp + Lý do)</summary>
+<form class="bar" method="post" action="{{ url_for('drl_nhap') }}" enctype="multipart/form-data" style="margin-top:10px">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="hk" value="{{ hk }}"><input type="hidden" name="nam" value="{{ nam }}"><input type="hidden" name="lop" value="{{ lop }}">
+<input type="file" name="file" accept=".xlsx" required><button class="btn gray">Nhập</button></form></details>
+</div>
+
+<div class="kpis" id="kpis"></div>
+<div class="card" style="padding:14px 16px"><div style="font-weight:600">Phân bố xếp loại</div><div class="dist" id="dist"></div><div class="legend" id="legend"></div></div>
+
+<div class="dt-card">
+<div class="tools"><div class="grow"><input id="q" type="search" placeholder="Tìm MSSV, họ tên, lớp… (không cần gõ dấu)"></div>
+<select id="fTT"><option value="">Trạng thái: tất cả</option><option value="chua">Chưa nhập điểm</option><option value="co">Đã có điểm</option><option value="thieu">Nghỉ/Bảo lưu/Không nộp thiếu lý do</option></select>
+<select id="fXL"><option value="">Xếp loại: tất cả</option></select>
+<button type="button" class="btn gray sm" id="fClear" style="display:none">Xóa lọc ✕</button></div>
+<div class="bulk" id="bulkbar"><span>Đã chọn <b id="bulkcount">0</b> sinh viên</span><span class="sp"></span>
+<button type="button" class="btn sm" id="bulkadj">Cập nhật điểm…</button><button type="button" class="btn sm" id="bulkexp">Xuất Excel đã chọn</button><button type="button" class="btn red sm" id="bulkdel">Xóa điểm đã chọn</button><button type="button" class="btn gray sm" id="bulkclear">Bỏ chọn</button></div>
+<table id="tb" class="stripe">
+<thead><tr><th class="nosort"><input type="checkbox" class="chk" id="chkAll" title="Chọn tất cả (theo kết quả lọc)"></th>
+<th class="stt nosort">STT</th><th>MSSV</th><th>HỌ</th><th>TÊN</th><th>ĐIỂM</th><th>XẾP LOẠI</th><th>LÝ DO</th><th>LỚP</th><th>MÃ LỚP</th><th class="nosort"></th></tr></thead>
+<tbody>
+{% for r in rows %}<tr data-mssv="{{ r.mssv }}" data-name="{{ r.ho_lot }} {{ r.ten }}">
+<td><input type="checkbox" class="chk" value="{{ r.mssv }}"></td><td></td>
+<td>{{ r.mssv }}</td><td>{{ r.ho_lot }}</td><td>{{ r.ten }}</td>
+<td data-order="{{ r.diem if r.diem is not none else -1 }}"><input class="diem" data-mssv="{{ r.mssv }}" value="{{ '%g' % r.diem if r.diem is not none else '' }}" inputmode="decimal"></td>
+<td class="xl" data-order="{{ RANK.get(r.xep_loai, -1) }}">{{ r.xep_loai or '' }}</td>{% set dac = r.diem is not none and r.diem in (1, 2, 3) %}
+<td class="ld"><input class="lydo{{ ' thieu' if dac and not r.ly_do }}" data-mssv="{{ r.mssv }}" maxlength="500" value="{{ r.ly_do or '' }}"
+ placeholder="{{ 'Bắt buộc: nhập lý do…' if dac else '—' }}" {{ '' if dac else 'disabled' }}></td>
+<td>{{ r.lop }}</td><td>{{ r.ma_lop }}</td>
+<td class="act"><button type="button" class="btn gray sm btn-view">Xem</button> <button type="button" class="btn sm btn-edit">Sửa</button> <button type="button" class="btn red sm btn-del">Xóa điểm</button></td></tr>{% endfor %}
+</tbody></table>
+<div class="hint">Gõ điểm rồi nhấn Enter (tự lưu, nhảy xuống dòng kế). Mã đặc biệt: 1 = Nghỉ, 2 = Bảo lưu, 3 = Không nộp — các trường hợp này phải ghi <b>lý do</b> ở cột LÝ DO (ô vàng = còn thiếu).
+Quy tắc: {% for n,t in quy_tac %}≥{{ n }} {{ t }}; {% endfor %}&lt;35 Kém.
+“Xóa điểm” chỉ xóa điểm của học kỳ/năm học đang xem, sinh viên vẫn được giữ lại.</div>
+</div>
+
+<dialog id="dlgBulk"><form method="dialog" id="fBulk">
+<h3>Cập nhật điểm hàng loạt</h3>
+<div class="hint" id="bkSel"></div>
+<label>Cách cập nhật</label><select id="bkMode"><option value="cong">Cộng / trừ điểm (vd +5 hoặc -3)</option><option value="dat">Đặt bằng một điểm</option></select>
+<label id="bkLab">Số điểm cộng thêm (số âm để trừ)</label><input id="bkVal" inputmode="decimal" required>
+<div id="bkLdWrap" style="display:none"><label>Lý do (bắt buộc với Nghỉ / Bảo lưu / Không nộp)</label><input id="bkLyDo" maxlength="500"></div>
+<div class="hint" id="bkHint"></div>
+<div class="row"><button type="button" class="btn gray" id="bkCancel">Hủy</button><button class="btn" id="bkOk" value="ok">Áp dụng</button></div>
+</form></dialog>
+
+<dialog id="dlg"><form method="dialog" id="fDlg">
+<h3 id="dlgTitle">Thêm điểm rèn luyện</h3>
+<label>Sinh viên</label><select id="dlgSv" required></select>
+<label>Điểm (0–100, hoặc 1=Nghỉ, 2=Bảo lưu, 3=Không nộp)</label><input id="dlgDiem" inputmode="decimal" required>
+<div id="dlgLdWrap" style="display:none"><label>Lý do (bắt buộc với Nghỉ / Bảo lưu / Không nộp)</label>
+<input id="dlgLyDo" maxlength="500" placeholder="vd: Nghỉ học đầu năm, đã bảo lưu ngày …"></div>
+<div class="hint">{{ hk }} · {{ nam }}</div>
+<div class="row"><button type="button" class="btn gray" id="dlgCancel">Hủy</button><button class="btn" id="dlgOk" value="ok">Lưu</button></div>
+</form></dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+const HK = {{ hk|tojson }}, NAM = {{ nam|tojson }};
+const MAU = {'Xuất sắc':'#16a34a','Tốt':'#22c55e','Khá':'#2563eb','TB':'#f59e0b','Yếu':'#f97316','Kém':'#dc2626',
+  'Nghỉ':'#94a3b8','Bảo lưu':'#a78bfa','Không nộp':'#64748b'};
+const t = initTable('#tb');
+const bulk = bulkSelect(t);
+const RANK = {'Xuất sắc': 6, 'Tốt': 5, 'Khá': 4, 'TB': 3, 'Yếu': 2, 'Kém': 1, 'Nghỉ': 0, 'Bảo lưu': 0, 'Không nộp': 0};
+const DAC_BIET = ['Nghỉ', 'Bảo lưu', 'Không nộp'], laMa = v => [1, 2, 3].includes(parseFloat(String(v).replace(',', '.')));
+const loc = {tt: '', xl: ''};   // bộ lọc: trạng thái (chua/co) và xếp loại
+
+// ---- Trạng thái lưu (tự lưu) + cảnh báo khi rời trang
+const dirty = new Set(); let dangLuu = 0;
+function trangThai(txt, cls) {
+  const el = document.getElementById('saveState'); el.textContent = txt; el.className = 'show ' + (cls || '');
+  clearTimeout(trangThai.h); if (!cls) trangThai.h = setTimeout(() => el.classList.remove('show'), 4000);
+}
+window.addEventListener('beforeunload', e => { if (dirty.size || dangLuu) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---- Kiểm tra hợp lệ phía trình duyệt (server vẫn kiểm tra lại)
+function kiemTraDiem(v) {
+  v = String(v).trim().replace(',', '.');
+  if (v === '') return {ok: true};
+  if (!/^-?\d+(\.\d+)?$/.test(v)) return {ok: false, msg: 'Điểm phải là một số (0–100, hoặc mã 1, 2, 3).'};
+  const f = +v;
+  if (f < 0) return {ok: false, msg: 'Điểm không được âm.'};
+  if (f > 100) return {ok: false, msg: 'Điểm tối đa là 100.'};
+  return {ok: true};
+}
+
+// ---- Lọc theo trạng thái / xếp loại (kết hợp với ô tìm kiếm và bộ lọc khác)
+($.fn.dataTable || window.DataTable).ext.search.push(function (settings, data, idx) {
+  if (settings.nTable !== document.getElementById('tb') || (!loc.tt && !loc.xl)) return true;
+  const tr = settings.aoData[idx] && settings.aoData[idx].nTr;
+  const xl = (tr ? tr.querySelector('.xl').textContent : String(data[6] || '')).trim();
+  if (loc.tt === 'chua' && xl !== '') return false;
+  if (loc.tt === 'co' && xl === '') return false;
+  if (loc.tt === 'thieu' && !(DAC_BIET.includes(xl) && !tr.querySelector('input.lydo').value.trim())) return false;
+  if (loc.xl && xl !== loc.xl) return false;
+  return true;
+});
+function apLoc() {
+  document.getElementById('fTT').value = loc.tt; document.getElementById('fXL').value = loc.xl;
+  document.getElementById('fClear').style.display = (loc.tt || loc.xl) ? '' : 'none';
+  t.draw(); thongKe();
+}
+document.getElementById('fXL').innerHTML += Object.keys(MAU).map(x => '<option>' + x + '</option>').join('');
+document.getElementById('fTT').onchange = e => { loc.tt = e.target.value; apLoc(); };
+document.getElementById('fXL').onchange = e => { loc.xl = e.target.value; apLoc(); };
+document.getElementById('fClear').onclick = () => { loc.tt = loc.xl = ''; apLoc(); };
+$('#legend, #dist').on('click', '[data-xl]', function () { loc.xl = loc.xl === this.dataset.xl ? '' : this.dataset.xl; apLoc(); });
+$('#kpis').on('click', '[data-tt]', function () { loc.tt = loc.tt === this.dataset.tt ? '' : this.dataset.tt; apLoc(); });
+
+document.querySelectorAll('#fFilter select').forEach(s => s.addEventListener('change', () => s.form.submit()));
+
+const fmt = v => String(+String(v).replace(',', '.'));
+const rowOf = mssv => t.$('input.diem[data-mssv="' + mssv + '"]').closest('tr');
+
+function thongKe() {
+  let tong = 0, chua = 0, sum = 0, n = 0, thieu = 0; const c = {};
+  t.rows().nodes().each(tr => {
+    tong++; const v = tr.querySelector('input.diem').value.trim();
+    if (!v) { chua++; return; }
+    const x = tr.querySelector('.xl').textContent.trim(); c[x] = (c[x] || 0) + 1;
+    if (DAC_BIET.includes(x) && !tr.querySelector('input.lydo').value.trim()) thieu++;
+    const f = parseFloat(v.replace(',', '.')); if (f > 3) { sum += f; n++; }
+  });
+  const k = (num, lab, cls, tt) => '<div class="kpi ' + (cls || '') + (tt && loc.tt === tt ? ' on' : '') + '"' + (tt ? ' data-tt="' + tt + '" title="Bấm để lọc"' : '') + '><div class="n">' + num + '</div><div class="l">' + lab + '</div></div>';
+  document.getElementById('kpis').innerHTML = k(tong, 'Tổng sinh viên') + k(tong - chua, 'Đã có điểm', 'good') +
+    k(chua, 'Chưa nhập', chua ? 'warn' : '', 'chua') + k(thieu, 'Thiếu lý do', thieu ? 'warn' : '', 'thieu') + k(n ? (sum / n).toFixed(1) : '–', 'Điểm trung bình');
+  const order = Object.keys(MAU), da = tong - chua;
+  document.getElementById('dist').innerHTML = order.filter(x => c[x]).map(x =>
+    '<span data-xl="' + x + '" class="' + (loc.xl === x ? 'on' : loc.xl ? 'dim' : '') + '" title="' + x + ': ' + c[x] + ' (bấm để lọc)" style="flex:' + c[x] + ';background:' + MAU[x] + '"></span>').join('');
+  document.getElementById('legend').innerHTML = da ? order.filter(x => c[x]).map(x =>
+    '<span data-xl="' + x + '" class="' + (loc.xl === x ? 'on' : loc.xl ? 'dim' : '') + '"><i class="dot" style="background:' + MAU[x] + '"></i>' + x + ' <b>' + c[x] + '</b></span>').join('') : 'Chưa có điểm nào.';
+}
+
+function capNhatDong(mssv, diem, xl, ly) {
+  const tr = rowOf(mssv); if (!tr.length) return;
+  const inp = tr.find('input.diem'); inp.val(diem == null ? '' : fmt(diem));
+  tr.find('.xl').text(xl || '').attr('data-order', xl in RANK ? RANK[xl] : -1); inp.closest('td').attr('data-order', diem == null ? -1 : diem);
+  const dac = DAC_BIET.includes(xl), li = tr.find('input.lydo');   // lý do chỉ dùng cho Nghỉ/Bảo lưu/Không nộp
+  li.prop('disabled', !dac).val(dac ? (ly || '') : '').attr('placeholder', dac ? 'Bắt buộc: nhập lý do…' : '—')
+    .toggleClass('thieu', dac && !(ly || '')).removeClass('err');
+  t.row(tr).invalidate('dom'); thongKe(); window.AI && AI.refresh();
+}
+
+// Lưu tại chỗ + Enter nhảy dòng kế (chỉ dòng đang hiển thị)
+$('#tb tbody').on('keydown', 'input.diem', function (e) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault(); this.blur();
+  const nx = $(this).closest('tr').next().find('input.diem'); if (nx.length) { nx.focus().select(); }
+});
+$('#tb tbody').on('focusin', 'input.diem', function () { this.dataset.old = this.value; });
+$('#tb tbody').on('input', 'input.diem', function () {
+  this.classList.remove('err', 'saved'); dirty.add(this.dataset.mssv);
+  trangThai('● Chưa lưu – nhấn Enter hoặc bấm ra ngoài để lưu', 'dirty');
+});
+$('#tb tbody').on('change', 'input.diem', async function () {
+  const inp = this, cu = inp.dataset.old || ''; inp.classList.remove('err', 'saved');
+  const kt = kiemTraDiem(inp.value);
+  if (!kt.ok) {   // chặn điểm âm / vượt 100 / không phải số: trả về giá trị cũ
+    inp.value = cu; inp.classList.add('err'); dirty.delete(inp.dataset.mssv);
+    trangThai('⚠ Chưa lưu: ' + kt.msg, 'err'); toast(kt.msg, 'err'); return;
+  }
+  if (inp.value.trim() === cu.trim()) { dirty.delete(inp.dataset.mssv); if (!dirty.size && !dangLuu) document.getElementById('saveState').classList.remove('show'); return; }
+  dangLuu++; trangThai('Đang lưu…', 'dirty');
+  try {
+    const j = await postJSON('/api/drl', {mssv: inp.dataset.mssv, hoc_ky: HK, nam_hoc: NAM, diem: inp.value});
+    capNhatDong(inp.dataset.mssv, j.diem, j.xep_loai, j.ly_do); inp.classList.add('saved'); inp.dataset.old = inp.value;
+    dirty.delete(inp.dataset.mssv);
+    if (laMa(j.diem) && !j.ly_do) toast('Đã lưu. Hãy nhập lý do ở cột LÝ DO của sinh viên này.');
+    if (!dirty.size) trangThai(laMa(j.diem) && !j.ly_do ? '● Đã lưu điểm – còn thiếu lý do (ô vàng)' : '✓ Đã lưu lúc ' + new Date().toLocaleTimeString('vi-VN'),
+      laMa(j.diem) && !j.ly_do ? 'dirty' : '');
+  } catch (err) {
+    inp.value = cu; inp.classList.add('err'); dirty.delete(inp.dataset.mssv);
+    trangThai('⚠ Chưa lưu: ' + err.message, 'err'); toast(err.message, 'err');
+  } finally { dangLuu--; }
+});
+
+// ---- Lý do (Nghỉ / Bảo lưu / Không nộp): tự lưu khi bấm ra ngoài / Enter
+$('#tb tbody').on('focusin', 'input.lydo', function () { this.dataset.old = this.value; });
+$('#tb tbody').on('input', 'input.lydo', function () {
+  this.classList.remove('err', 'saved', 'thieu'); dirty.add('ld' + this.dataset.mssv);
+  trangThai('● Chưa lưu – nhấn Enter hoặc bấm ra ngoài để lưu', 'dirty');
+});
+$('#tb tbody').on('keydown', 'input.lydo', function (e) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault(); this.blur();
+  const nx = $(this).closest('tr').next().find('input.lydo:not(:disabled)'); if (nx.length) nx.focus().select();
+});
+$('#tb tbody').on('change', 'input.lydo', async function () {
+  const inp = this, cu = (inp.dataset.old || '').trim(), v = inp.value.trim(), key = 'ld' + inp.dataset.mssv;
+  if (v === cu) { dirty.delete(key); inp.classList.toggle('thieu', !v); return; }
+  if (!v) {   // không cho xóa trắng lý do của Nghỉ/Bảo lưu/Không nộp
+    inp.value = cu; dirty.delete(key); inp.classList.add('err');
+    trangThai('⚠ Chưa lưu: lý do không được để trống', 'err'); toast('Cần nhập lý do cho trường hợp Nghỉ / Bảo lưu / Không nộp.', 'err'); return;
+  }
+  dangLuu++; trangThai('Đang lưu…', 'dirty');
+  try {
+    const diem = rowOf(inp.dataset.mssv).find('input.diem').val();
+    const j = await postJSON('/api/drl', {mssv: inp.dataset.mssv, hoc_ky: HK, nam_hoc: NAM, diem, ly_do: v});
+    capNhatDong(inp.dataset.mssv, j.diem, j.xep_loai, j.ly_do); inp.classList.add('saved'); dirty.delete(key);
+    if (!dirty.size) trangThai('✓ Đã lưu lý do lúc ' + new Date().toLocaleTimeString('vi-VN'));
+  } catch (err) {
+    inp.value = cu; inp.classList.add('err'); dirty.delete(key); trangThai('⚠ Chưa lưu: ' + err.message, 'err'); toast(err.message, 'err');
+  } finally { dangLuu--; }
+});
+
+async function xoaDiem(ds, ok) {
+  ds = ds.filter(m => rowOf(m).find('input.diem').val().trim() !== '');   // chỉ SV đang có điểm
+  if (!ds.length) { toast('Các sinh viên đã chọn chưa có điểm để xóa.'); return; }
+  if (!ok) {
+    const ten = ds.length === 1 ? rowOf(ds[0]).attr('data-name').trim() + ' (' + ds[0] + ')' : ds.length + ' sinh viên';
+    if (!confirm('Xóa điểm rèn luyện của ' + ten + ' trong ' + HK + ' năm học ' + NAM + '?\n(Sinh viên vẫn được giữ lại. Không thể hoàn tác.)')) return;
+  }
+  try {
+    const j = await postJSON('/api/drl/xoa', {mssvs: ds, hoc_ky: HK, nam_hoc: NAM});
+    ds.forEach(m => { capNhatDong(m, null, ''); rowOf(m).find('input.chk').prop('checked', false); });
+    bulk.update(); toast('Đã xóa điểm của ' + j.da_xoa + ' sinh viên.', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+}
+$('#bulkdel').on('click', () => xoaDiem(bulk.sel()));
+$('#tb tbody').on('click', '.btn-del', function () { xoaDiem([$(this).closest('tr').attr('data-mssv')]); });
+
+// Xuất Excel các sinh viên đã chọn
+$('#bulkexp').on('click', () => {
+  const ds = bulk.sel(); if (!ds.length) return;
+  const f = document.createElement('form'); f.method = 'post'; f.action = '{{ url_for("drl_xuat_chon") }}';
+  f.innerHTML = '<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="hk"><input type="hidden" name="nam"><input type="hidden" name="mssvs">';
+  f.querySelector('[name=hk]').value = HK; f.querySelector('[name=nam]').value = NAM; f.querySelector('[name=mssvs]').value = ds.join(',');
+  document.body.appendChild(f); f.submit(); f.remove();
+});
+
+// Cập nhật điểm hàng loạt (cộng/trừ hoặc đặt bằng)
+const dlgB = document.getElementById('dlgBulk'), bkMode = document.getElementById('bkMode'), bkVal = document.getElementById('bkVal');
+const diemCu = m => rowOf(m).find('input.diem').val().trim().replace(',', '.');
+function xemTruoc() {
+  const ds = bulk.sel(), g = parseFloat(bkVal.value.replace(',', '.')), el = document.getElementById('bkHint');
+  if (!ds.length || isNaN(g)) { el.textContent = ''; return; }
+  if (bkMode.value === 'dat') { el.textContent = 'Sẽ đặt điểm ' + g + ' cho ' + ds.length + ' sinh viên (kể cả người chưa có điểm).'; return; }
+  let ap = 0, chua = 0, dac = 0, kep = 0;
+  ds.forEach(m => { const v = diemCu(m); if (v === '') chua++; else { const f = parseFloat(v);
+    if ([1, 2, 3].includes(f)) dac++; else { ap++; if (f + g > 100 || f + g < 0) kep++; } } });
+  el.textContent = 'Áp dụng cho ' + ap + ' sinh viên' + (chua ? '; bỏ qua ' + chua + ' người chưa có điểm' : '') +
+    (dac ? '; bỏ qua ' + dac + ' người có mã đặc biệt (Nghỉ/Bảo lưu/Không nộp)' : '') +
+    (kep ? '; ' + kep + ' người sẽ bị giữ trong khoảng 0–100' : '') + '.';
+}
+document.getElementById('bulkadj').onclick = () => {
+  const ds = bulk.sel(); if (!ds.length) return;
+  document.getElementById('bkSel').textContent = 'Đã chọn ' + ds.length + ' sinh viên · ' + HK + ' · ' + NAM;
+  bkVal.value = ''; bkLd.value = ''; bkLdWrap.style.display = 'none'; document.getElementById('bkHint').textContent = ''; dlgB.showModal(); bkVal.focus();
+};
+const bkLdWrap = document.getElementById('bkLdWrap'), bkLd = document.getElementById('bkLyDo');
+const capLd = () => { bkLdWrap.style.display = (bkMode.value === 'dat' && laMa(bkVal.value)) ? '' : 'none'; };
+bkMode.onchange = () => { document.getElementById('bkLab').textContent = bkMode.value === 'cong' ? 'Số điểm cộng thêm (số âm để trừ)' : 'Điểm cần đặt (0–100, hoặc mã 1, 2, 3)'; capLd(); xemTruoc(); };
+bkVal.oninput = () => { capLd(); xemTruoc(); };
+document.getElementById('bkCancel').onclick = () => dlgB.close();
+document.getElementById('fBulk').addEventListener('submit', async e => {
+  e.preventDefault();
+  const ds = bulk.sel(), che_do = bkMode.value, g = bkVal.value.trim().replace(',', '.');
+  if (che_do === 'dat') { const kt = kiemTraDiem(g); if (!kt.ok || g === '') { toast(kt.msg || 'Hãy nhập điểm.', 'err'); return; } }
+  else if (isNaN(parseFloat(g)) || !/^-?\d+(\.\d+)?$/.test(g) || +g === 0 || Math.abs(+g) > 100) { toast('Số điểm cộng/trừ phải khác 0 và nằm trong -100…100.', 'err'); return; }
+  const bkBody = {mssvs: ds, hoc_ky: HK, nam_hoc: NAM, che_do, gia_tri: g};
+  if (che_do === 'dat' && laMa(g)) { const ly = bkLd.value.trim(); if (!ly) { toast('Hãy nhập lý do (Nghỉ / Bảo lưu / Không nộp).', 'err'); bkLd.focus(); return; } bkBody.ly_do = ly; }
+  if (!confirm('Cập nhật điểm của ' + ds.length + ' sinh viên (' + (che_do === 'cong' ? (+g > 0 ? 'cộng ' : 'trừ ') + Math.abs(+g) : 'đặt bằng ' + g) + ' điểm)?')) return;
+  try {
+    const j = await postJSON('/api/drl/cap-nhat-nhieu', bkBody);
+    j.cap_nhat.forEach(r => capNhatDong(r.mssv, r.diem, r.xep_loai, r.ly_do));
+    dlgB.close(); const b = j.bo_qua, bo = b.chua_co_diem + b.ma_dac_biet + b.trung_ma_dac_biet + b.khong_co_sinh_vien;
+    toast('Đã cập nhật ' + j.cap_nhat.length + ' sinh viên' + (bo ? ', bỏ qua ' + bo + ' (chưa có điểm / mã đặc biệt)' : '') +
+      (j.gioi_han ? ', ' + j.gioi_han + ' người được giữ trong khoảng 0–100' : '') + '.', 'ok');
+    trangThai('✓ Đã lưu lúc ' + new Date().toLocaleTimeString('vi-VN'));
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// Hộp thoại thêm / sửa điểm
+const dlgLd = document.getElementById('dlgLyDo'), dlgLdWrap = document.getElementById('dlgLdWrap');
+const dlg = document.getElementById('dlg'), dlgSv = document.getElementById('dlgSv'), dlgDiem = document.getElementById('dlgDiem');
+function moDlg(mssv) {
+  dlgSv.innerHTML = '';
+  if (mssv) {
+    const tr = rowOf(mssv);
+    dlgSv.add(new Option(mssv + ' – ' + tr.attr('data-name'), mssv)); dlgSv.disabled = true;
+    dlgDiem.value = tr.find('input.diem').val(); dlgLd.value = tr.find('input.lydo').val() || ''; document.getElementById('dlgTitle').textContent = 'Sửa điểm rèn luyện';
+  } else {
+    dlgSv.disabled = false; dlgDiem.value = ''; dlgLd.value = ''; document.getElementById('dlgTitle').textContent = 'Thêm điểm rèn luyện';
+    t.rows().nodes().each(tr => {
+      if (!tr.querySelector('input.diem').value.trim()) dlgSv.add(new Option(tr.dataset.mssv + ' – ' + tr.dataset.name, tr.dataset.mssv));
+    });
+    if (!dlgSv.options.length) { toast('Tất cả sinh viên trong danh sách đã có điểm.'); return; }
+  }
+  dlgLdWrap.style.display = laMa(dlgDiem.value) ? '' : 'none';
+  dlg.showModal(); (mssv ? dlgDiem : dlgSv).focus();
+}
+dlgDiem.addEventListener('input', () => { dlgLdWrap.style.display = laMa(dlgDiem.value) ? '' : 'none'; });
+document.getElementById('btnAdd').onclick = () => moDlg(null);
+$('#tb tbody').on('click', '.btn-edit', function () { moDlg($(this).closest('tr').attr('data-mssv')); });
+document.getElementById('dlgCancel').onclick = () => dlg.close();
+document.getElementById('fDlg').addEventListener('submit', async e => {
+  e.preventDefault();
+  const kt = kiemTraDiem(dlgDiem.value); if (!kt.ok) { toast(kt.msg, 'err'); return; }
+  const body = {mssv: dlgSv.value, hoc_ky: HK, nam_hoc: NAM, diem: dlgDiem.value};
+  if (laMa(dlgDiem.value)) {
+    const ly = dlgLd.value.trim(); if (!ly) { toast('Hãy nhập lý do (Nghỉ / Bảo lưu / Không nộp).', 'err'); dlgLd.focus(); return; }
+    body.ly_do = ly;
+  }
+  try {
+    const j = await postJSON('/api/drl', body);
+    capNhatDong(dlgSv.value, j.diem, j.xep_loai, j.ly_do); dlg.close(); toast('Đã lưu điểm.', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+});
+thongKe();
+
+// ---- Xem chi tiết sinh viên (drawer): thông tin, điểm rèn luyện qua các kỳ, tình trạng học tập
+const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dong = (k, v) => '<dt>' + k + '</dt><dd>' + (esc(v) || '<span class="empty">—</span>') + '</dd>';
+let svDangXem = null;
+function dongXem() { document.body.classList.remove('sv-open'); document.getElementById('svDrawer').setAttribute('aria-hidden', 'true'); svDangXem = null; }
+const hienDiem = d => laMa(d) ? ({1: 'Nghỉ', 2: 'Bảo lưu', 3: 'Không nộp'})[Math.round(d)] : fmt(d);
+async function xemSV(mssv) {
+  svDangXem = mssv; const body = document.getElementById('svBody');
+  document.getElementById('svName').textContent = rowOf(mssv).attr('data-name').trim() || 'Đang tải…';
+  document.getElementById('svSub').textContent = 'MSSV ' + mssv + ' · ' + HK + ' ' + NAM;
+  body.innerHTML = '<div class="empty">Đang tải…</div>'; document.body.classList.add('sv-open');
+  document.getElementById('svDrawer').setAttribute('aria-hidden', 'false');
+  document.getElementById('svFull').href = '/tinh-trang/' + encodeURIComponent(mssv) + '/chi-tiet';
+  try {
+    const r = await fetch('/api/sinh-vien/' + encodeURIComponent(mssv)); if (!r.ok) throw new Error('Không tải được hồ sơ (' + r.status + ')');
+    const j = await r.json(), sv = j.sinh_vien; if (svDangXem !== mssv) return;
+    document.getElementById('svName').textContent = (sv.ho_lot + ' ' + sv.ten).trim();
+    document.getElementById('svSub').textContent = 'MSSV ' + sv.mssv + (sv.ma_lop ? ' · ' + sv.ma_lop : '');
+    const cur = j.diem_ren_luyen.find(d => d.hoc_ky === HK && d.nam_hoc === NAM);
+    const hero = cur
+      ? '<div class="hero"><div class="n" style="color:' + (MAU[cur.xep_loai] || '#111') + '">' + esc(hienDiem(cur.diem)) + '</div><div><span class="tag">' + esc(cur.xep_loai) +
+        '</span><div class="ld">' + (cur.ly_do ? 'Lý do: ' + esc(cur.ly_do) : (laMa(cur.diem) ? '<b style="color:#b45309">Chưa có lý do</b>' : '')) + '</div></div></div>'
+      : '<div class="hero"><div class="empty">Chưa có điểm rèn luyện ' + esc(HK + ' ' + NAM) + '.</div></div>';
+    const dr = j.diem_ren_luyen.length ? '<table><tr><th>Kỳ</th><th>Điểm</th><th>Xếp loại</th><th></th></tr>' + j.diem_ren_luyen.map(d => {
+        const num = !laMa(d.diem); return '<tr class="' + (d.hoc_ky === HK && d.nam_hoc === NAM ? 'cur' : '') + '"><td>' + esc(d.hoc_ky + ' ' + d.nam_hoc) + '</td><td>' + esc(hienDiem(d.diem)) +
+          '</td><td>' + esc(d.xep_loai) + '</td><td>' + (num ? '<div class="bar"><i style="width:' + Math.min(100, d.diem) + '%;background:' + (MAU[d.xep_loai] || '#2563eb') + '"></i></div>' : '') + '</td></tr>' +
+          (d.ly_do ? '<tr><td></td><td colspan="3" class="empty">Lý do: ' + esc(d.ly_do) + '</td></tr>' : ''); }).join('') + '</table>'
+      : '<div class="empty">Chưa có điểm rèn luyện nào.</div>';
+    const tt = j.tinh_trang.length ? '<table><tr><th>Kỳ</th><th>Kết quả</th><th>ĐTB HK</th><th>XL HK</th></tr>' + j.tinh_trang.map(t =>
+        '<tr><td>' + esc(t.hoc_ky + ' ' + t.nam_hoc) + '</td><td><span class="tag' + (t.ket_qua !== 'Bình thường' ? ' w' : '') + '">' + esc(t.ket_qua) + '</span></td><td>' +
+        esc(t.dtb_hk) + '</td><td>' + esc(t.xl_hk) + '</td></tr>').join('') + '</table>' : '<div class="empty">Chưa có dữ liệu xét tiến độ.</div>';
+    body.innerHTML = '<h4>Kỳ đang xem · ' + esc(HK + ' ' + NAM) + '</h4>' + hero +
+      '<h4>Thông tin cá nhân</h4><dl>' + dong('MSSV', sv.mssv) + dong('Họ tên', (sv.ho_lot + ' ' + sv.ten).trim()) + dong('Lớp', sv.lop) + dong('Mã lớp', sv.ma_lop) +
+      dong('Khóa', sv.khoa_hoc) + dong('Ngành', sv.nganh) + dong('Khoa', sv.khoa) + '</dl>' +
+      '<h4>Lịch sử điểm rèn luyện (' + j.diem_ren_luyen.length + ' kỳ)</h4>' + dr +
+      '<h4>Tình trạng học tập (' + j.tinh_trang.length + ' kỳ, ' + j.so_ky_canh_bao + ' kỳ cảnh báo)</h4>' + tt;
+  } catch (err) { body.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
+}
+$('#tb tbody').on('click', '.btn-view', function () { xemSV($(this).closest('tr').attr('data-mssv')); });
+$('#tb tbody').on('click', 'td:nth-child(3), td:nth-child(4), td:nth-child(5)', function () { xemSV($(this).closest('tr').attr('data-mssv')); });
+document.getElementById('svClose').onclick = dongXem; document.getElementById('svMask').onclick = dongXem;
+document.getElementById('svEditDrl').onclick = () => { const m = svDangXem; dongXem(); if (m) moDlg(m); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('sv-open') && !dlg.open) dongXem(); });
+
+// ---- Trợ lý AI
+const infoDrl = tr => {
+  const v = tr.querySelector('input.diem').value.trim().replace(',', '.'), f = v === '' ? null : parseFloat(v);
+  return {num: f != null && f > 3 ? f : null, empty: f == null, xl: tr.querySelector('.xl').textContent.trim(),
+    lop: tr.cells[9].textContent.trim(),
+    thieuLd: DAC_BIET.includes(tr.querySelector('.xl').textContent.trim()) && !tr.querySelector('input.lydo').value.trim(),
+    text: norm(tr.dataset.mssv + ' ' + tr.dataset.name + ' ' + tr.cells[8].textContent + ' ' + tr.cells[9].textContent + ' ' + tr.querySelector('input.lydo').value).toLowerCase()};
+};
+const xlRule = (re, name) => ({re, label: 'Xếp loại ' + name, group: 'xl', test: i => i.xl === name});
+AI.register({
+  table: t, bulk, noun: 'sinh viên', numLabel: 'Điểm', stop: ['ren', 'luyen', 'drl'], has: {lop: true},
+  deleteVerb: 'Xóa điểm rèn luyện của', info: infoDrl,
+  rules: [
+    {re: /\bthieu ly do\b/, label: 'Thiếu lý do', test: i => i.thieuLd},
+    {re: /\b(chua nhap|chua co diem|thieu diem|chua co)\b/, label: 'Chưa có điểm', test: i => i.empty},
+    xlRule(/\bxuat sac\b/, 'Xuất sắc'), xlRule(/\btot\b/, 'Tốt'), xlRule(/\bkha\b/, 'Khá'), xlRule(/\b(tb|trung binh)\b/, 'TB'),
+    xlRule(/\byeu\b/, 'Yếu'), xlRule(/\bkem\b/, 'Kém'), xlRule(/\bnghi\b/, 'Nghỉ'), xlRule(/\bbao luu\b/, 'Bảo lưu'),
+    xlRule(/\bkhong nop\b/, 'Không nộp')],
+  actions: {delete: ds => xoaDiem(ds, true), add: () => document.getElementById('btnAdd').click(),
+    export: () => document.querySelector('.top-actions a.btn.gray').click()},
+  examples: ['điểm dưới 50', 'chưa nhập điểm', 'thiếu lý do', 'từ 80 đến 100', 'yếu hoặc kém', 'chọn điểm dưới 35', 'xóa điểm dưới 35', 'xuất excel', 'tóm tắt'],
+  insights() {
+    const rows = t.rows().nodes().toArray().map(infoDrl), tong = rows.length, out = [];
+    if (!tong) return out;
+    const chua = rows.filter(r => r.empty).length, thap = rows.filter(r => r.num != null && r.num < 50).length;
+    const tot = rows.filter(r => r.xl === 'Xuất sắc' || r.xl === 'Tốt').length, co = tong - chua;
+    if (chua) out.push({text: chua + '/' + tong + ' sinh viên (' + Math.round(100 * chua / tong) + '%) chưa có điểm ở kỳ này.', q: 'chưa nhập điểm'});
+    const tl = rows.filter(r => r.thieuLd).length;
+    if (tl) out.push({text: tl + ' sinh viên Nghỉ/Bảo lưu/Không nộp chưa có lý do.', q: 'thiếu lý do'});
+    if (thap) out.push({text: thap + ' sinh viên có điểm dưới 50 – nên rà soát lại.', q: 'điểm dưới 50'});
+    const g = {}; rows.forEach(r => { if (r.num != null && r.lop) (g[r.lop] = g[r.lop] || []).push(r.num); });
+    const ls = Object.entries(g).filter(([, a]) => a.length >= 3).map(([l, a]) => [l, a.reduce((x, y) => x + y, 0) / a.length]).sort((a, b) => a[1] - b[1]);
+    if (ls.length > 1) out.push({text: 'Lớp ' + ls[0][0] + ' có điểm trung bình thấp nhất (' + ls[0][1].toFixed(1) + ').', q: 'lớp ' + ls[0][0].toLowerCase()});
+    if (co && tot) out.push({text: Math.round(100 * tot / co) + '% sinh viên đã chấm đạt từ Tốt trở lên.', q: 'xuất sắc hoặc tốt'});
+    return out;
+  }
+});
+</script>{% endblock %}

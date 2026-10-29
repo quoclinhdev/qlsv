@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+{% block title %}Quản lý chấm điểm{% endblock %}
+{% block heading %}Quản lý chấm điểm{% if mon %} · {{ mon.ten_mon }}{% endif %}{% endblock %}
+{% block actions %}
+<button type="button" class="btn" id="btnMon">+ Thêm môn</button>
+<button type="button" class="btn gray" id="btnNhom"{% if not mon %} disabled{% endif %}>+ Khóa / nhóm</button>
+{% if nhom %}<a class="btn gray" href="{{ url_for('cham_diem_xuat', nhom=nhom.id) }}">Xuất Excel</a>{% endif %}
+{% endblock %}
+{% block body %}
+<style>
+.cd-bar{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+.cd-bar label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;font-weight:500;color:#475569}
+.cd-bar select{min-width:240px}
+.cd-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;align-items:center}
+.cd-tabs a{padding:6px 14px;border-radius:99px;border:1px solid var(--line);background:#fff;color:#334155;text-decoration:none;font-size:13px;font-weight:500}
+.cd-tabs a:hover{border-color:var(--pri);background:var(--pri-soft)}
+.cd-tabs a.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.cd-tabs a small{opacity:.75;margin-left:4px}
+.cd-empty{text-align:center;padding:36px 12px;color:var(--mut)}
+.cd-wrap{overflow:auto;border-top:1px solid var(--line)}
+#tbDD{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+#tbDD th,#tbDD td{padding:4px 5px;border-bottom:1px solid var(--line-2);white-space:nowrap;vertical-align:middle}
+#tbDD thead th{background:#eef2f9;border-bottom:2px solid #cfd8e8;color:var(--navy);font-weight:600;text-align:left;vertical-align:top}
+#tbDD th.b,#tbDD td.c{text-align:center}
+#tbDD th.b{min-width:92px}
+#tbDD th.b .bt{font-size:12.5px;margin-bottom:4px}
+#tbDD th.b.co .bt::after{content:' ●';color:var(--green);font-size:10px}
+#tbDD th.b input.ngay{width:92px;padding:2px 2px;font-size:10.5px}
+#tbDD th.b .bq{display:flex;gap:4px;justify-content:center;margin-top:5px}
+#tbDD thead th{position:sticky;top:0;z-index:3}
+#tbDD tbody td{background:#fff}
+#tbDD tbody tr:hover td{background:#eaf1ff}
+/* Cột cố định bên trái: STT + Họ tên (luôn thấy tên khi kéo ngang) */
+#tbDD .l1,#tbDD .l2{position:sticky;z-index:2;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis}
+#tbDD thead .l1,#tbDD thead .l2{z-index:5}
+#tbDD .l1{left:0;width:62px;min-width:62px;max-width:62px}
+#tbDD .l2{left:62px;width:176px;min-width:176px;max-width:176px;box-shadow:3px 0 4px -2px rgba(15,23,42,.25)}
+#tbDD td.c.tk3{font-variant-numeric:tabular-nums}
+#tbDD td .s-v.has{color:var(--red);font-weight:700}
+@media(max-width:760px){ #tbDD .l2{width:140px;min-width:140px;max-width:140px}}
+/* Chế độ toàn màn hình: bảng chiếm cả cửa sổ, cuộn 2 chiều, tiêu đề dính */
+.dt-card.full{position:fixed;inset:0;z-index:80;margin:0;border-radius:0;background:#fff;display:flex;flex-direction:column;overflow:hidden;padding:10px 14px}
+.dt-card.full .cd-wrap{flex:1;min-height:0;overflow:auto}
+.dt-card.full .hint{display:none}
+.dt-card.full .cd-legend{flex:none;margin-top:6px}
+.fsOnly{display:none}.dt-card.full .fsOnly{display:inline-block}
+.dt-card.full .tools{flex:none}
+.dt-card.full .cd-wrap{padding:0}
+#tbDD{transform-origin:0 0}
+.dd{width:30px;height:26px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#94a3b8;font:700 12px var(--font);cursor:pointer;transition:background .1s}
+.dd:hover{border-color:var(--pri)}
+.dd[data-tt=cm]{background:#dcfce7;border-color:#86efac;color:#166534}
+.dd[data-tt=tr]{background:#fef3c7;border-color:#fcd34d;color:#92400e}
+.dd[data-tt=cp]{background:#dbeafe;border-color:#93c5fd;color:#1e40af}
+.dd[data-tt=v]{background:#fee2e2;border-color:#fca5a5;color:#991b1b}
+.dd:disabled{opacity:.5;cursor:wait}
+.pct.low{color:var(--red);font-weight:700}
+#tbDD input.kt{width:50px;text-align:center;padding:3px 4px}
+#tbDD th.sc{min-width:56px}
+#tbDD td.s-tk{font-weight:700}
+#tbDD td.s-tk.low{color:var(--red)}
+#dlgMon{width:min(600px,94vw)}
+#dlgMon fieldset{border:1px solid var(--line);border-radius:var(--r-s);margin:14px 0 0;padding:8px 14px 12px}
+#dlgMon legend{font-weight:600;color:var(--navy);padding:0 6px}
+#dlgMon .tl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#dlgMon .tl input{width:84px}
+#dlgMon .hs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+#dlgMon .hs label{margin:0;font-size:12.5px}
+#dlgMon .hs input{width:100%}
+#dlgMon #monMau{margin-top:8px;padding:8px 10px;background:var(--pri-soft);border-radius:var(--r-s);color:var(--ink)}
+.cd-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;font-size:12.5px;color:var(--mut);align-items:center}
+.cd-legend .dd{width:24px;height:22px;font-size:11px;cursor:default;margin-right:4px}
+.uv-list{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-s);margin-top:8px}
+.uv-list label{display:flex;gap:10px;align-items:center;margin:0;padding:6px 10px;border-bottom:1px solid var(--line-2);cursor:pointer;font-weight:400}
+.uv-list label:hover{background:var(--pri-soft)}
+.uv-list label span{color:var(--mut);font-size:12px;margin-left:auto}
+.uv-list input{width:auto}
+dialog.wide{width:min(640px,94vw)}
+dialog textarea{width:100%;font:inherit;padding:7px 11px;border:1px solid #cbd5e1;border-radius:var(--r-s)}
+</style>
+
+{% if not mons %}
+<div class="card cd-empty">
+  <p style="font-size:15px;margin:0 0 6px;color:var(--ink)"><b>Chưa có môn học nào.</b></p>
+  <p style="margin:0 0 14px">Bắt đầu bằng cách thêm môn (mỗi môn mặc định điểm danh 6 buổi).</p>
+  <button type="button" class="btn" id="btnMon2">+ Thêm môn</button>
+</div>
+{% else %}
+<div class="card">
+  <div class="cd-bar">
+    <label>Môn học
+      <select id="selMon">{% for m in mons %}<option value="{{ m.id }}" {{ 'selected' if mon and m.id==mon.id }}>{{ (m.ma_mon ~ ' – ') if m.ma_mon }}{{ m.ten_mon }}</option>{% endfor %}</select></label>
+    <label>Khóa
+      <select id="selKh"{% if not khoas %} disabled{% endif %}>
+        {% for k in khoas %}<option value="{{ k.khoa_hoc }}" {{ 'selected' if k.khoa_hoc==kh }}>{{ hien_khoa(k.khoa_hoc) }} ({{ k.so_nhom }} nhóm · {{ k.so_sv }}/{{ k.tong_sv }} SV{% if k.chua_xep %} · {{ k.chua_xep }} chưa xếp{% endif %})</option>{% endfor %}
+        {% if not khoas %}<option>— chưa có —</option>{% endif %}</select></label>
+    <button type="button" class="btn gray sm" id="btnSuaMon">Sửa môn ({{ mon.so_buoi }} buổi)</button>
+    <button type="button" class="btn red sm" id="btnXoaMon">Xóa môn</button>
+  </div>
+  {% if nhoms %}
+  <div class="cd-tabs">
+    {% for n in nhoms %}<a href="{{ url_for('cham_diem', mon=mon.id, kh=kh, nhom=n.id) }}" class="{{ 'on' if nhom and n.id==nhom.id }}">{{ n.ten_hien }}<small>{{ n.so_sv }} SV</small></a>{% endfor %}
+    <span style="flex:1"></span>
+    {% if nhom %}<button type="button" class="btn gray sm" id="btnDoiTen">Đổi tên nhóm</button><button type="button" class="btn red sm" id="btnXoaNhom">Xóa {{ nhom.ten_hien }}</button>{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if not khoas %}
+<div class="card cd-empty">
+  <p style="margin:0 0 14px">Môn này chưa có khóa / nhóm. Nhập khóa (vd K25) và số nhóm (vd 6) để tạo.</p>
+  <button type="button" class="btn" id="btnNhom2">+ Khóa / nhóm</button>
+</div>
+{% elif nhom %}
+<div class="kpis">
+  <div class="kpi"><div class="n" id="kSv">{{ svs|length }}</div><div class="l">Sinh viên trong {{ nhom.ten_hien }}</div></div>
+  <div class="kpi {{ 'warn' if tk.chua_xep else 'good' }}" id="kChua" style="cursor:pointer" title="Bấm để thêm sinh viên vào nhóm"><div class="n">{{ tk.chua_xep }}</div><div class="l">SV {{ hien_khoa(kh) }} chưa vào nhóm nào ({{ tk.tong_sv }} SV trong khóa, đã xếp {{ tk.tong_sv - tk.chua_xep }})</div></div>
+  <div class="kpi good"><div class="n" id="kBuoi">0/{{ mon.so_buoi }}</div><div class="l">Buổi đã điểm danh</div></div>
+  <div class="kpi"><div class="n" id="kTl">–</div><div class="l">Tỷ lệ có mặt trung bình</div></div>
+  <div class="kpi"><div class="n" id="kTb">–</div><div class="l">Điểm tổng kết trung bình (ĐD {{ '%g'|format(mon.ty_le_dd) }}% · KT {{ '%g'|format(100 - mon.ty_le_dd) }}%)</div></div>
+</div>
+
+<div class="dt-card" id="cdCard">
+  <div class="tools">
+    <div style="font-weight:600;color:var(--navy);flex:1">Bảng điểm danh · {{ mon.ten_mon }} · {{ hien_khoa(kh) }} · {{ nhom.ten_hien }}</div>
+    <select id="fsNhom" class="fsOnly" title="Đổi nhóm"></select>
+    <button type="button" class="btn gray" id="btnFull" title="Xem bảng trên toàn màn hình (Esc để thoát)">⛶ Toàn màn hình</button>
+    <button type="button" class="btn gray" id="btnChuyen" disabled>Chuyển nhóm đã chọn (0)</button>
+    <button type="button" class="btn" id="btnThemSv">+ Thêm sinh viên vào nhóm</button>
+  </div>
+  {% if svs %}
+  <div class="cd-wrap">
+  <table id="tbDD">
+    <thead><tr><th class="l1"><input type="checkbox" id="chkAllDD" title="Chọn tất cả"> STT</th><th class="l2">Họ và tên</th><th>MSSV</th><th>Mã lớp</th>
+      {% for b in range(1, mon.so_buoi + 1) %}<th class="b" data-b="{{ b }}"><div class="bt">Buổi {{ b }}</div>
+        <input type="date" class="ngay" data-b="{{ b }}" title="Ngày học buổi {{ b }} (tự lấy khi điểm danh, có thể sửa tay)">
+        <div class="bq"><button type="button" class="btn gray sm" data-all="{{ b }}" title="Đánh dấu Có mặt cho những người chưa điểm danh">✓</button><button type="button" class="btn gray sm" data-clr="{{ b }}" title="Xóa điểm danh buổi này">✕</button></div></th>{% endfor %}
+      <th title="Có mặt (gồm Trễ) / Có phép / Vắng">Có / Phép / Vắng</th><th>%</th>
+      <th class="sc" title="Tính theo quy định của môn (nút Sửa môn)">Điểm ĐD<br><small>{{ '%g'|format(mon.ty_le_dd) }}%</small></th>
+      <th class="sc" title="Nhập điểm kiểm tra (thang 10)">Điểm KT<br><small>{{ '%g'|format(100 - mon.ty_le_dd) }}%</small></th>
+      <th class="sc">Tổng kết</th><th></th></tr></thead>
+    <tbody>
+    {% for s in svs %}<tr data-mssv="{{ s.mssv }}"><td class="l1"><input type="checkbox" class="chk" value="{{ s.mssv }}"> {{ loop.index }}</td><td class="l2" title="{{ s.ho_lot }} {{ s.ten }}">{{ s.ho_lot }} <b>{{ s.ten }}</b></td><td>{{ s.mssv }}</td><td>{{ s.ma_lop }}</td>
+      {% for b in range(1, mon.so_buoi + 1) %}<td class="c"><button type="button" class="dd" data-b="{{ b }}" data-tt="" title="Bấm để đổi trạng thái">·</button></td>{% endfor %}
+      <td class="c tk3"><span class="s-cm">0</span> / <span class="s-cp">0</span> / <span class="s-v">0</span></td><td class="c pct">–</td>
+      <td class="c s-dd">–</td><td class="c"><input type="text" inputmode="decimal" class="kt" maxlength="5" placeholder="0–10" title="Điểm kiểm tra (0–10). Enter để xuống dòng dưới"></td><td class="c s-tk">–</td>
+      <td><button type="button" class="btn gray sm btn-mv" title="Chuyển sang nhóm khác">Chuyển</button> <button type="button" class="btn red sm btn-go" title="Gỡ khỏi nhóm">Gỡ</button></td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="cd-legend">
+    <span>Bấm vào ô để đổi: trống → Có mặt → Vắng → Có phép → Trễ → trống.</span>
+    {% for k, v in TRANG_THAI.items() %}<span><button type="button" class="dd" data-tt="{{ k }}" tabindex="-1">{{ KY_HIEU[k] }}</button>{{ v }}</span>{% endfor %}
+  </div>
+  <div class="hint">Ngày của mỗi buổi được tự điền bằng ngày hôm nay khi bạn điểm danh lần đầu cho buổi đó; có thể sửa tay ở ô ngày trên tiêu đề cột. “% có mặt” = (Có mặt + Trễ) / số buổi đã điểm danh.
+    <br>Điểm ĐD = 10 điểm chia đều cho {{ mon.so_buoi }} buổi, mỗi buổi nhân hệ số theo trạng thái (Có mặt {{ '%g'|format(mon.hs_cm) }}% · Trễ {{ '%g'|format(mon.hs_tr) }}% · Có phép {{ '%g'|format(mon.hs_cp) }}% · Vắng {{ '%g'|format(mon.hs_v) }}%){% if mon.vang_toi_da is not none %}; vắng quá {{ mon.vang_toi_da }} buổi thì ĐD = 0{% endif %}. Buổi chưa điểm danh tính 0 điểm.
+    Tổng kết = ĐD × {{ '%g'|format(mon.ty_le_dd) }}% + KT × {{ '%g'|format(100 - mon.ty_le_dd) }}% (thiếu điểm KT thì chưa có tổng kết). Đổi cách tính ở nút “Sửa môn”.</div>
+  {% else %}
+  <div class="cd-empty">Nhóm này chưa có sinh viên. Bấm “+ Thêm sinh viên vào nhóm” để chọn từ danh sách sinh viên hiện có.</div>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<dialog id="dlgMon"><form method="dialog" id="fMon">
+<h3 id="monTitle">Thêm môn học</h3>
+<label>Mã môn (không bắt buộc)</label><input id="monMa" maxlength="30">
+<label>Tên môn</label><input id="monTen" maxlength="150" required>
+<label>Số buổi điểm danh</label><input id="monBuoi" type="number" min="1" max="30" value="6" required>
+<fieldset><legend>Cách tính điểm của môn</legend>
+  <label>Tỷ lệ điểm trong tổng kết</label>
+  <div class="tl">Điểm danh <input id="monDd" type="number" min="0" max="100" step="any" value="50"> % &nbsp;·&nbsp; Kiểm tra <b id="monKt">50</b> %
+    <span style="flex:1"></span>
+    <button type="button" class="btn gray sm" data-tl="100">100/0</button><button type="button" class="btn gray sm" data-tl="70">70/30</button><button type="button" class="btn gray sm" data-tl="50">50/50</button><button type="button" class="btn gray sm" data-tl="30">30/70</button><button type="button" class="btn gray sm" data-tl="0">0/100</button></div>
+  <label style="margin-top:12px">Mỗi buổi được bao nhiêu % điểm của buổi (10 điểm chia đều cho các buổi)</label>
+  <div class="hs">
+    <label>Có mặt<input id="monHsCm" type="number" min="0" max="100" step="any" value="100"></label>
+    <label>Trễ<input id="monHsTr" type="number" min="0" max="100" step="any" value="50"></label>
+    <label>Có phép<input id="monHsCp" type="number" min="0" max="100" step="any" value="100"></label>
+    <label>Vắng<input id="monHsV" type="number" min="0" max="100" step="any" value="0"></label></div>
+  <label style="margin-top:12px">Vắng quá … buổi thì điểm điểm danh = 0 (để trống = không giới hạn)</label>
+  <input id="monVang" type="number" min="0" step="1" placeholder="vd: 0 = vắng 1 buổi là mất hết điểm" style="width:100%">
+  <div class="hint" id="monMau"></div>
+</fieldset>
+<div class="row"><button type="button" class="btn gray" id="monCancel">Hủy</button><button class="btn">Lưu</button></div>
+</form></dialog>
+
+<dialog id="dlgNhom"><form method="dialog" id="fNhom">
+<h3>Tạo nhóm theo khóa</h3>
+<div class="hint">Môn: <b>{{ mon.ten_mon if mon }}</b></div>
+<label>Khóa (vd K25 hoặc 25)</label><input id="nhKh" value="{{ hien_khoa(kh) if kh }}" required>
+<label>Số nhóm</label><input id="nhSo" type="number" min="1" max="50" value="6">
+<div class="hint">Hệ thống tạo Nhóm 1…N. Nhóm đã có được giữ nguyên.</div>
+<label>Hoặc đặt tên nhóm riêng (cách nhau bởi dấu phẩy)</label><input id="nhTen" placeholder="vd: A1, A2, A3, B1, B2, B3">
+<div class="hint">Nếu nhập tên riêng thì bỏ qua “Số nhóm”; tên đã có trong khóa được giữ nguyên.</div>
+<div class="row"><button type="button" class="btn gray" id="nhCancel">Hủy</button><button class="btn">Tạo nhóm</button></div>
+</form></dialog>
+
+<dialog id="dlgTen"><form method="dialog" id="fTen">
+<h3>Đổi tên nhóm</h3>
+<label>Tên mới (để trống = quay về “Nhóm {{ nhom.stt if nhom }}”)</label><input id="tenMoi" maxlength="40" placeholder="vd: A1, B2…">
+<div class="row"><button type="button" class="btn gray" id="tenCancel">Hủy</button><button class="btn">Lưu tên</button></div>
+</form></dialog>
+
+<dialog id="dlgChuyen"><form method="dialog" id="fChuyen">
+<h3>Chuyển nhóm</h3>
+<div class="hint" id="mvInfo"></div>
+<label>Chuyển đến</label><select id="mvDen"></select>
+<label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="mvDD" checked style="width:auto"> Chuyển kèm điểm danh đã có</label>
+<div class="hint">Bỏ tick thì điểm danh của sinh viên trong nhóm hiện tại sẽ bị xóa. Lịch học các nhóm có thể khác nhau nên hãy kiểm tra lại ngày các buổi ở nhóm mới.</div>
+<div class="row"><button type="button" class="btn gray" id="mvCancel">Hủy</button><button class="btn">Chuyển</button></div>
+</form></dialog>
+
+<dialog id="dlgSv" class="wide"><form method="dialog" id="fSv">
+<h3>Thêm sinh viên vào {{ nhom.ten_hien if nhom }}</h3>
+<div class="hint"{% if tk.chua_xep %} style="color:var(--amber);font-weight:500"{% endif %}>{% if tk %}{{ hien_khoa(kh) }} còn <b>{{ tk.chua_xep }}</b> sinh viên chưa vào nhóm nào. {% endif %}Chọn từ danh sách sinh viên trong CSDL (chỉ hiện người chưa thuộc nhóm nào của môn + khóa này).</div>
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
+  <input id="svQ" type="search" placeholder="Tìm MSSV, họ tên, mã lớp… (không cần gõ dấu)" style="flex:1;min-width:200px">
+  <label style="display:inline-flex;align-items:center;gap:6px;margin:0"><input id="svAll" type="checkbox" style="width:auto"> Cả khóa khác</label>
+</div>
+<div class="uv-list" id="uvList"></div>
+<div style="display:flex;gap:10px;align-items:center;margin-top:6px"><span class="hint" id="uvInfo" style="flex:1"></span>
+  <button type="button" class="btn gray sm" id="uvAllBtn">Chọn tất cả đang hiện</button></div>
+<label>Hoặc dán danh sách MSSV (cách nhau bởi dấu cách, phẩy hoặc xuống dòng)</label>
+<textarea id="svPaste" rows="3"></textarea>
+<div class="row"><span class="hint" id="uvChon" style="flex:1;align-self:center;margin:0">Đã chọn 0</span>
+  <button type="button" class="btn gray" id="svCancel">Hủy</button><button class="btn">Thêm vào nhóm</button></div>
+</form></dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+const MON = {{ mon|tojson }}, NHOM = {{ nhom|tojson }}, KH = {{ kh|tojson }}, NHOMS = {{ nhoms|tojson }};
+const D = {{ du_lieu|tojson }};
+const KY_HIEU = {{ KY_HIEU|tojson }}, TRANG_THAI = {{ TRANG_THAI|tojson }};
+const THU_TU = ['', 'cm', 'v', 'cp', 'tr'];
+const NGUONG = 80;   // % có mặt dưới ngưỡng này thì tô đỏ (đổi số này nếu quy chế khác)
+const el = id => document.getElementById(id);
+const baoSau = msg => { try { sessionStorage.setItem('cdToast', msg); } catch (e) {} location.reload(); };
+try { const m = sessionStorage.getItem('cdToast'); if (m) { sessionStorage.removeItem('cdToast'); toast(m, 'ok'); } } catch (e) {}
+const dichVu = async (f) => { try { return await f(); } catch (err) { toast(err.message, 'err'); } };
+const di = (mon, kh, nhom) => { location.href = '{{ url_for("cham_diem") }}?' + new URLSearchParams({mon, kh: kh || '', nhom: nhom || ''}); };
+
+// ---- Môn học
+const dlgMon = el('dlgMon'); let suaMon = false;
+const gs = x => String(+(+x).toFixed(2));
+const MAC_DINH = {ty_le_dd: 50, hs_cm: 100, hs_tr: 50, hs_cp: 100, hs_v: 0, vang_toi_da: null};
+const HS_O = {hs_cm: 'monHsCm', hs_tr: 'monHsTr', hs_cp: 'monHsCp', hs_v: 'monHsV'};
+function capMau() {
+  const dd = Math.min(100, Math.max(0, +el('monDd').value || 0)), sb = +el('monBuoi').value || 0;
+  el('monKt').textContent = gs(100 - dd);
+  if (sb < 1) { el('monMau').textContent = ''; return; }
+  const h = k => (+el(HS_O[k]).value || 0) / 100, gh = el('monVang').value.trim() === '' ? null : +el('monVang').value;
+  const vdu = k => (k === 'v' && gh !== null && gh < 1) ? 0 : 10 * ((sb - 1) * h('hs_cm') + h('hs_' + k)) / sb;
+  el('monMau').innerHTML = 'Mỗi buổi tối đa <b>' + gs(10 / sb) + '</b> điểm. Đi đủ ' + sb + ' buổi: <b>' + gs(10 * h('hs_cm')) + '</b> điểm. ' +
+    'Nếu các buổi còn lại có mặt: trễ 1 buổi → <b>' + gs(vdu('tr')) + '</b>, có phép 1 buổi → <b>' + gs(vdu('cp')) + '</b>, vắng 1 buổi → <b>' + gs(vdu('v')) + '</b>' +
+    (gh === null ? '.' : ' (vắng quá ' + gh + ' buổi thì mất hết điểm điểm danh).');
+}
+['monDd', 'monBuoi', 'monVang', ...Object.values(HS_O)].forEach(i => el(i).addEventListener('input', capMau));
+dlgMon.querySelectorAll('[data-tl]').forEach(b => b.onclick = () => { el('monDd').value = b.dataset.tl; capMau(); });
+function moMon(sua) {
+  suaMon = sua; el('monTitle').textContent = sua ? 'Sửa môn học' : 'Thêm môn học';
+  el('monMa').value = sua ? MON.ma_mon : ''; el('monTen').value = sua ? MON.ten_mon : ''; el('monBuoi').value = sua ? MON.so_buoi : 6;
+  const c = sua ? MON : MAC_DINH;
+  el('monDd').value = gs(c.ty_le_dd); Object.entries(HS_O).forEach(([k, i]) => el(i).value = gs(c[k]));
+  el('monVang').value = c.vang_toi_da == null ? '' : c.vang_toi_da; capMau();
+  dlgMon.showModal(); el('monTen').focus();
+}
+['btnMon', 'btnMon2'].forEach(i => el(i) && (el(i).onclick = () => moMon(false)));
+el('btnSuaMon') && (el('btnSuaMon').onclick = () => moMon(true));
+el('monCancel').onclick = () => dlgMon.close();
+el('fMon').addEventListener('submit', e => { e.preventDefault(); dichVu(async () => {
+  const j = await postJSON('/api/cd/mon', {id: suaMon ? MON.id : null, ma_mon: el('monMa').value, ten_mon: el('monTen').value, so_buoi: el('monBuoi').value,
+    cau_hinh: {ty_le_dd: el('monDd').value, hs_cm: el('monHsCm').value, hs_tr: el('monHsTr').value, hs_cp: el('monHsCp').value,
+               hs_v: el('monHsV').value, vang_toi_da: el('monVang').value}});
+  dlgMon.close(); sessionStorage.setItem('cdToast', suaMon ? 'Đã cập nhật môn.' : 'Đã thêm môn.'); di(j.id, KH);
+}); });
+el('btnXoaMon') && (el('btnXoaMon').onclick = () => {
+  if (!confirm('Xóa môn “' + MON.ten_mon + '” cùng toàn bộ nhóm và điểm danh của môn?\nKhông thể hoàn tác. (Sinh viên vẫn được giữ lại.)')) return;
+  dichVu(async () => { await postJSON('/api/cd/mon/xoa', {id: MON.id}); sessionStorage.setItem('cdToast', 'Đã xóa môn.'); location.href = '{{ url_for("cham_diem") }}'; });
+});
+el('selMon') && (el('selMon').onchange = e => di(e.target.value, ''));
+el('selKh') && (el('selKh').onchange = e => di(MON.id, e.target.value));
+
+// ---- Khóa / nhóm
+const dlgNhom = el('dlgNhom');
+['btnNhom', 'btnNhom2'].forEach(i => el(i) && (el(i).onclick = () => { dlgNhom.showModal(); el('nhKh').focus(); }));
+el('nhCancel').onclick = () => dlgNhom.close();
+el('fNhom').addEventListener('submit', e => { e.preventDefault(); dichVu(async () => {
+  const j = await postJSON('/api/cd/nhom', {mon_id: MON.id, khoa_hoc: el('nhKh').value, so_nhom: el('nhSo').value, ten_nhom: el('nhTen').value});
+  dlgNhom.close(); sessionStorage.setItem('cdToast', j.nhom_moi ? 'Đã tạo ' + j.nhom_moi + ' nhóm mới.' : 'Các nhóm đã có sẵn.'); di(MON.id, j.khoa_hoc);
+}); });
+el('btnXoaNhom') && (el('btnXoaNhom').onclick = () => {
+  if (!confirm('Xóa ' + NHOM.ten_hien + ' cùng danh sách sinh viên và điểm danh của nhóm?\nKhông thể hoàn tác.')) return;
+  dichVu(async () => { await postJSON('/api/cd/nhom/xoa', {nhom_id: NHOM.id}); sessionStorage.setItem('cdToast', 'Đã xóa nhóm.'); di(MON.id, KH); });
+});
+
+if (D.nhom_id) {
+  const NID = D.nhom_id, tb = el('tbDD');
+  // Toàn màn hình + tự co vừa khít: không cần kéo ngang (và kéo dọc nếu lớp ít người)
+  const the = el('cdCard'), bFull = el('btnFull'), khung = the.querySelector('.cd-wrap');
+  const luuFull = v => { try { localStorage.setItem('cdFull', v ? '1' : '0'); } catch (e) {} };
+  function vua() {
+    if (!tb || !khung) return;
+    const full = the.classList.contains('full');
+    tb.style.zoom = ''; tb.style.width = 'auto';
+    const nw = tb.offsetWidth, nh = tb.offsetHeight;
+    const zw = Math.max(.55, Math.min(1, (khung.clientWidth - 4) / nw));
+    const zh = full ? Math.max(.75, Math.min(1, (khung.clientHeight - 4) / nh)) : 1;
+    const z = Math.min(zw, zh);
+    tb.style.width = ''; tb.style.zoom = z < 1 ? String(z) : '';
+  }
+  function toanMan(on, nho) {
+    the.classList.toggle('full', on); document.body.style.overflow = on ? 'hidden' : '';
+    bFull.textContent = on ? '✕ Thoát toàn màn hình' : '⛶ Toàn màn hình'; if (nho) luuFull(on); vua();
+  }
+  bFull && (bFull.onclick = () => toanMan(!the.classList.contains('full'), true));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && the.classList.contains('full') && !document.querySelector('dialog[open]')) toanMan(false, true); });
+  el('fsNhom').innerHTML = NHOMS.map(n => '<option value="' + n.id + '"' + (n.id === NID ? ' selected' : '') + '>' + n.ten_hien + ' (' + n.so_sv + ' SV)</option>').join('');
+  el('fsNhom').onchange = e => di(MON.id, KH, e.target.value);
+  let henVua; window.addEventListener('resize', () => { clearTimeout(henVua); henVua = setTimeout(vua, 120); });
+  window.addEventListener('load', vua);
+  const ngayInput = b => tb && tb.querySelector('input.ngay[data-b="' + b + '"]');
+
+  // ---- Vẽ lại bảng từ dữ liệu D
+  function veO(btn, tt) {
+    btn.dataset.tt = tt || ''; btn.textContent = tt ? KY_HIEU[tt] : '·';
+    btn.title = tt ? TRANG_THAI[tt] + ' – bấm để đổi' : 'Chưa điểm danh – bấm để đổi';
+  }
+  const fmt = v => v == null ? '–' : gs(v);
+  const hs = t => (+MON['hs_' + t] || 0) / 100;
+  function diemDD(m) {   // phản chiếu chamdiem.diem_diem_danh
+    const ks = Object.keys(m).filter(b => +b >= 1 && +b <= D.so_buoi); if (!ks.length) return null;
+    if (MON.vang_toi_da != null && ks.filter(b => m[b] === 'v').length > MON.vang_toi_da) return 0;
+    return Math.round(1000 * ks.reduce((t, b) => t + hs(m[b]), 0) / D.so_buoi) / 100;
+  }
+  function tongKet(dd, kt) {   // phản chiếu chamdiem.diem_tong_ket
+    const wd = +MON.ty_le_dd, wk = 100 - wd;
+    if ((wd > 0 && dd == null) || (wk > 0 && kt == null)) return null;
+    return Math.round((dd || 0) * wd + (kt || 0) * wk) / 100;
+  }
+  function tinh() {
+    if (!tb) return;
+    const co = new Set(); Object.values(D.dd).forEach(m => Object.keys(m).forEach(b => co.add(b)));
+    const dienRa = co.size; let tong = 0, n = 0, tTk = 0, nTk = 0;
+    tb.querySelectorAll('th.b').forEach(th => th.classList.toggle('co', co.has(th.dataset.b)));
+    tb.querySelectorAll('tbody tr').forEach(tr => {
+      const ms = tr.dataset.mssv, m = D.dd[ms] || {}; let cm = 0, cp = 0, v = 0;
+      Object.values(m).forEach(t => { if (t === 'cm' || t === 'tr') cm++; else if (t === 'cp') cp++; else if (t === 'v') v++; });
+      tr.querySelector('.s-cm').textContent = cm; tr.querySelector('.s-cp').textContent = cp; tr.querySelector('.s-v').textContent = v; tr.querySelector('.s-v').classList.toggle('has', v > 0);
+      const p = tr.querySelector('.pct'), pct = dienRa ? Math.round(100 * cm / dienRa) : null;
+      p.textContent = pct == null ? '–' : pct + '%'; p.classList.toggle('low', pct != null && pct < NGUONG);
+      if (pct != null) { tong += pct; n++; }
+      const dd = diemDD(m), kt = D.kt[ms] == null ? null : D.kt[ms], tk = tongKet(dd, kt), c = tr.querySelector('.s-tk');
+      tr.querySelector('.s-dd').textContent = fmt(dd); c.textContent = fmt(tk); c.classList.toggle('low', tk != null && tk < 5);
+      if (tk != null) { tTk += tk; nTk++; }
+    });
+    el('kSv').textContent = tb.querySelectorAll('tbody tr').length;
+    el('kBuoi').textContent = dienRa + '/' + D.so_buoi;
+    el('kTl').textContent = n ? Math.round(tong / n) + '%' : '–';
+    el('kTb').textContent = nTk ? gs(tTk / nTk) : '–';
+  }
+  function datNgay(b, ngay) { const i = ngayInput(b); if (i) i.value = ngay || ''; if (ngay) D.ngay[b] = ngay; else delete D.ngay[b]; }
+  if (tb) {
+    tb.querySelectorAll('tbody tr').forEach(tr => tr.querySelectorAll('button.dd').forEach(btn =>
+      veO(btn, (D.dd[tr.dataset.mssv] || {})[btn.dataset.b] || '')));
+    for (let b = 1; b <= D.so_buoi; b++) datNgay(b, D.ngay[b]);
+    tb.querySelectorAll('tbody tr').forEach(tr => { const i = tr.querySelector('input.kt'), v = D.kt[tr.dataset.mssv]; i.value = v == null ? '' : gs(v); });
+    tinh();
+  }
+  if (tb) { let p = null; try { p = localStorage.getItem('cdFull'); } catch (e) {} toanMan(p !== '0', false); }
+  const capNhatO = (mssv, b, tt) => {
+    const tr = tb.querySelector('tbody tr[data-mssv="' + mssv + '"]'); if (!tr) return;
+    veO(tr.querySelector('button.dd[data-b="' + b + '"]'), tt);
+    if (tt) (D.dd[mssv] = D.dd[mssv] || {})[b] = tt; else if (D.dd[mssv]) delete D.dd[mssv][b];
+  };
+  const thongBaoNgay = (b, truoc, sau) => { if (!truoc && sau) toast('Buổi ' + b + ': tự lấy ngày ' + sau.split('-').reverse().join('/') + ' (sửa tay được ở ô ngày).', 'ok'); };
+
+  // ---- Bấm ô để đổi trạng thái
+  tb && tb.addEventListener('click', e => {
+    const btn = e.target.closest('button.dd'); if (!btn) return;
+    const tr = btn.closest('tr'), mssv = tr.dataset.mssv, b = btn.dataset.b;
+    const moi = THU_TU[(THU_TU.indexOf(btn.dataset.tt) + 1) % THU_TU.length];
+    btn.disabled = true;
+    dichVu(async () => {
+      const truoc = D.ngay[b], j = await postJSON('/api/cd/diem-danh', {nhom_id: NID, mssv, buoi: b, trang_thai: moi});
+      capNhatO(mssv, b, moi); datNgay(b, j.ngay); thongBaoNgay(b, truoc, j.ngay); tinh();
+    }).finally(() => { btn.disabled = false; });
+  });
+  // ---- Cả buổi: tất cả có mặt / xóa buổi
+  tb && tb.addEventListener('click', e => {
+    const all = e.target.closest('[data-all]'), clr = e.target.closest('[data-clr]'); if (!all && !clr) return;
+    const b = (all || clr).dataset.all || (all || clr).dataset.clr;
+    if (clr && !confirm('Xóa toàn bộ điểm danh của buổi ' + b + '?')) return;
+    dichVu(async () => {
+      const truoc = D.ngay[b], j = await postJSON('/api/cd/diem-danh-buoi', {nhom_id: NID, buoi: b, trang_thai: all ? 'cm' : '', chi_o_trong: true});
+      Object.entries(j.cap_nhat).forEach(([m, tt]) => capNhatO(m, b, tt));
+      if (all) { datNgay(b, j.ngay); thongBaoNgay(b, truoc, j.ngay); }
+      tinh();
+    });
+  });
+  // ---- Sửa tay ngày của buổi
+  tb && tb.addEventListener('change', e => {
+    const i = e.target.closest('input.ngay'); if (!i) return;
+    const b = i.dataset.b, cu = D.ngay[b] || '';
+    dichVu(async () => { const j = await postJSON('/api/cd/ngay', {nhom_id: NID, buoi: b, ngay: i.value}); datNgay(b, j.ngay); toast('Đã lưu ngày buổi ' + b + '.', 'ok'); })
+      .then(r => { if (r === undefined && (D.ngay[b] || '') !== i.value) i.value = cu; });
+  });
+  // ---- Nhập điểm kiểm tra
+  tb && tb.addEventListener('change', e => {
+    const i = e.target.closest('input.kt'); if (!i) return;
+    const ms = i.closest('tr').dataset.mssv, cu = D.kt[ms];
+    dichVu(async () => {
+      const j = await postJSON('/api/cd/diem-kt', {nhom_id: NID, mssv: ms, diem: i.value});
+      if (j.diem == null) delete D.kt[ms]; else D.kt[ms] = j.diem;
+      i.value = j.diem == null ? '' : gs(j.diem); tinh(); return true;
+    }).then(ok => { if (!ok) i.value = cu == null ? '' : gs(cu); });
+  });
+  tb && tb.addEventListener('keydown', e => {   // Enter: lưu và xuống ô điểm KT của sinh viên kế tiếp
+    if (e.key !== 'Enter' || !e.target.classList.contains('kt')) return; e.preventDefault();
+    const all = [...tb.querySelectorAll('input.kt')], nx = all[all.indexOf(e.target) + 1]; e.target.blur(); if (nx) { nx.focus(); nx.select(); }
+  });
+  // ---- Gỡ sinh viên khỏi nhóm
+  tb && tb.addEventListener('click', e => {
+    const g = e.target.closest('.btn-go'); if (!g) return;
+    const tr = g.closest('tr'), m = tr.dataset.mssv, ten = tr.cells[1].textContent;
+    if (!confirm('Gỡ ' + m + ' – ' + ten.trim() + ' khỏi ' + NHOM.ten_hien + '?\nĐiểm danh của sinh viên này trong nhóm sẽ bị xóa.')) return;
+    dichVu(async () => { await postJSON('/api/cd/nhom/xoa-sv', {nhom_id: NID, mssvs: [m]}); baoSau('Đã gỡ ' + m + ' khỏi nhóm.'); });
+  });
+
+  // ---- Thêm sinh viên vào nhóm
+  const dlgSv = el('dlgSv'), chon = new Set(); let hien = [], hen;
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const demChon = () => { el('uvChon').textContent = 'Đã chọn ' + chon.size; };
+  async function taiUngVien() {
+    const p = new URLSearchParams({nhom_id: NID, q: el('svQ').value, all: el('svAll').checked ? 1 : 0});
+    const r = await fetch('/api/cd/ung-vien?' + p), j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('Lỗi ' + r.status));
+    hien = j.sinh_vien;
+    el('uvList').innerHTML = hien.length ? hien.map(s => '<label><input type="checkbox" value="' + esc(s.mssv) + '"' + (chon.has(s.mssv) ? ' checked' : '') + '><b>' + esc(s.mssv) + '</b> ' +
+      esc((s.ho_lot + ' ' + s.ten).trim()) + '<span>' + esc([s.ma_lop, s.khoa_hoc ? 'K' + s.khoa_hoc : ''].filter(Boolean).join(' · ')) + '</span></label>').join('')
+      : '<div class="cd-empty" style="padding:18px">Không có sinh viên phù hợp.</div>';
+    el('uvInfo').textContent = 'Hiển thị ' + hien.length + ' / ' + j.tong + ' sinh viên' + (j.tong > hien.length ? ' (gõ tìm để thu hẹp)' : '');
+  }
+  const lenLich = () => { clearTimeout(hen); hen = setTimeout(() => dichVu(taiUngVien), 250); };
+  el('btnThemSv') && (el('btnThemSv').onclick = () => { chon.clear(); el('svQ').value = ''; el('svPaste').value = ''; demChon(); dlgSv.showModal(); dichVu(taiUngVien); el('svQ').focus(); });
+  el('svQ').addEventListener('input', lenLich); el('svAll').addEventListener('change', lenLich);
+  el('uvList').addEventListener('change', e => { const c = e.target; if (c.type !== 'checkbox') return; c.checked ? chon.add(c.value) : chon.delete(c.value); demChon(); });
+  el('uvAllBtn').onclick = () => { const het = hien.every(s => chon.has(s.mssv)); hien.forEach(s => het ? chon.delete(s.mssv) : chon.add(s.mssv));
+    el('uvList').querySelectorAll('input').forEach(c => c.checked = chon.has(c.value)); demChon(); };
+  el('svCancel').onclick = () => dlgSv.close();
+  el('fSv').addEventListener('submit', e => { e.preventDefault();
+    const dan = el('svPaste').value.split(/[\s,;]+/).filter(Boolean), ds = [...new Set([...chon, ...dan])];
+    if (!ds.length) { toast('Hãy chọn hoặc dán ít nhất một MSSV.', 'err'); return; }
+    dichVu(async () => {
+      const j = await postJSON('/api/cd/nhom/them-sv', {nhom_id: NID, mssvs: ds});
+      let m = 'Đã thêm ' + j.da_them + ' sinh viên vào nhóm.';
+      if (j.da_co) m += ' ' + j.da_co + ' người đã có sẵn.';
+      if (j.o_nhom_khac.length) m += ' Bỏ qua ' + j.o_nhom_khac.length + ' người đang ở nhóm khác: ' + j.o_nhom_khac.slice(0, 4).join(', ') + (j.o_nhom_khac.length > 4 ? '…' : '') + '.';
+      if (j.khong_co.length) m += ' ' + j.khong_co.length + ' MSSV không có trong CSDL: ' + j.khong_co.slice(0, 4).join(', ') + (j.khong_co.length > 4 ? '…' : '') + '.';
+      dlgSv.close(); baoSau(m);
+    });
+  });
+
+  // ---- Bấm vào thẻ "chưa vào nhóm" để mở hộp thêm sinh viên
+  el('kChua') && (el('kChua').onclick = () => el('btnThemSv').click());
+
+  // ---- Đổi tên nhóm
+  const dlgTen = el('dlgTen');
+  el('btnDoiTen') && (el('btnDoiTen').onclick = () => { el('tenMoi').value = NHOM.ten || ''; el('tenMoi').placeholder = NHOM.ten_hien; dlgTen.showModal(); el('tenMoi').focus(); });
+  el('tenCancel').onclick = () => dlgTen.close();
+  el('fTen').addEventListener('submit', e => { e.preventDefault(); dichVu(async () => {
+    const j = await postJSON('/api/cd/nhom/doi-ten', {nhom_id: NID, ten: el('tenMoi').value}); dlgTen.close(); baoSau('Đã đổi tên nhóm thành “' + j.ten + '”.');
+  }); });
+
+  // ---- Chuyển nhóm (nhiều sinh viên đã tick, hoặc một người qua nút "Chuyển")
+  const dlgMv = el('dlgChuyen'); let dsMv = [];
+  const daChon = () => tb ? [...tb.querySelectorAll('tbody input.chk:checked')].map(c => c.value) : [];
+  const capNutChuyen = () => { const n = daChon().length, b = el('btnChuyen'); if (!b) return; b.disabled = !n; b.textContent = 'Chuyển nhóm đã chọn (' + n + ')';
+    const all = el('chkAllDD'); if (all) all.checked = n > 0 && n === tb.querySelectorAll('tbody input.chk').length; };
+  tb && tb.addEventListener('change', e => { if (e.target.classList.contains('chk')) capNutChuyen(); });
+  el('chkAllDD') && (el('chkAllDD').onchange = e => { tb.querySelectorAll('tbody input.chk').forEach(c => c.checked = e.target.checked); capNutChuyen(); });
+  function moChuyen(ds) {
+    const dich = NHOMS.filter(n => n.id !== NID);
+    if (!dich.length) { toast('Khóa này chưa có nhóm khác. Hãy tạo thêm nhóm trước (+ Khóa / nhóm).', 'err'); return; }
+    dsMv = ds; el('mvInfo').textContent = 'Chuyển ' + ds.length + ' sinh viên từ ' + NHOM.ten_hien + (ds.length === 1 ? ' (' + ds[0] + ')' : '') + '.';
+    el('mvDen').innerHTML = dich.map(n => '<option value="' + n.id + '">' + esc(n.ten_hien) + ' (' + n.so_sv + ' SV)</option>').join('');
+    dlgMv.showModal();
+  }
+  el('btnChuyen') && (el('btnChuyen').onclick = () => { const ds = daChon(); if (ds.length) moChuyen(ds); });
+  tb && tb.addEventListener('click', e => { const b = e.target.closest('.btn-mv'); if (b) moChuyen([b.closest('tr').dataset.mssv]); });
+  el('mvCancel').onclick = () => dlgMv.close();
+  el('fChuyen').addEventListener('submit', e => { e.preventDefault(); dichVu(async () => {
+    const j = await postJSON('/api/cd/nhom/chuyen', {nhom_id: NID, den_nhom_id: +el('mvDen').value, mssvs: dsMv, kem_diem_danh: el('mvDD').checked});
+    dlgMv.close(); baoSau('Đã chuyển ' + j.da_chuyen + ' sinh viên sang ' + j.ten_den + (j.bo_qua.length ? '; bỏ qua ' + j.bo_qua.length + ' người.' : '.'));
+  }); });
+}
+</script>{% endblock %}

@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Sinh viên{% endblock %}
+{% block heading %}Danh sách sinh viên{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('sv_them') }}">+ Thêm sinh viên</a>
+<a class="btn gray" id="btnExport" href="{{ url_for('sv_xuat') }}">Xuất Excel</a>
+<button type="button" class="btn gray" id="btnImp">Nhập từ Excel</button>{% endblock %}
+{% block body %}
+<style>
+.colmenu{position:relative;display:inline-block}
+.colmenu .pop{display:none;position:absolute;right:0;top:100%;margin-top:4px;z-index:30;background:var(--card,#fff);
+  border:1px solid var(--line,#d0d7e2);border-radius:8px;padding:8px 12px;min-width:160px;box-shadow:0 6px 20px rgba(0,0,0,.15)}
+.colmenu.open .pop{display:block}
+.colmenu .pop label{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer;white-space:nowrap}
+#tb tbody td:nth-child(3),#tb tbody td:nth-child(5){cursor:pointer}
+#tb tbody td:nth-child(3){color:var(--pri,#2563eb);font-weight:600}
+#tb tbody td:nth-child(3):hover{text-decoration:underline}
+#svMask{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:90}
+#svDrawer{position:fixed;top:0;right:0;height:100%;width:min(480px,100%);background:var(--card,#fff);z-index:100;
+  box-shadow:-8px 0 30px rgba(0,0,0,.2);transform:translateX(100%);transition:transform .2s;display:flex;flex-direction:column}
+body.sv-open #svDrawer{transform:none} body.sv-open #svMask{display:block}
+#svDrawer header{display:flex;align-items:flex-start;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line,#e3e8ef)}
+#svDrawer header h3{margin:0;font-size:17px} #svDrawer header .sub{font-size:12px;color:var(--mut,#667085)}
+#svDrawer .body{flex:1;overflow:auto;padding:14px 18px}
+#svDrawer h4{margin:16px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut,#667085)}
+#svDrawer dl{display:grid;grid-template-columns:110px 1fr;gap:6px 10px;margin:0;font-size:14px}
+#svDrawer dt{color:var(--mut,#667085)} #svDrawer dd{margin:0;font-weight:500}
+#svDrawer table{width:100%;border-collapse:collapse;font-size:13px}
+#svDrawer th,#svDrawer td{padding:5px 6px;border-bottom:1px solid var(--line,#e3e8ef);text-align:left}
+#svDrawer .tag{display:inline-block;padding:1px 8px;border-radius:10px;background:#eef2ff;font-size:12px}
+#svDrawer .tag.w{background:#fef3c7} #svDrawer .empty{color:var(--mut,#667085);font-size:13px}
+#svDrawer footer{padding:12px 18px;border-top:1px solid var(--line,#e3e8ef);display:flex;gap:8px}
+</style>
+<div id="svMask"></div>
+<aside id="svDrawer" aria-hidden="true">
+  <header><div style="flex:1"><h3 id="svName">—</h3><div class="sub" id="svSub"></div></div>
+  <button type="button" class="btn gray sm" id="svClose">Đóng ✕</button></header>
+  <div class="body" id="svBody"></div>
+  <footer><a class="btn sm" id="svEdit" href="#">Sửa thông tin</a><a class="btn gray sm" id="svFull" href="#">Trang tình trạng đầy đủ</a></footer>
+</aside>
+<div class="kpis" id="kpis"></div>
+<div class="card" id="impCard" style="display:none">
+<h3 style="margin:0 0 10px">Thêm sinh viên từ Excel</h3>
+<form class="bar" method="post" action="{{ url_for('sv_nhap') }}" enctype="multipart/form-data">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<input type="file" name="file" accept=".xlsx" required>
+<label style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" name="cap_nhat" value="1"> Cập nhật nếu MSSV đã tồn tại</label>
+<button class="btn">Nhập sinh viên</button>
+<a class="btn gray sm" href="{{ url_for('sv_mau') }}">Tải file mẫu</a>
+<button type="button" class="btn gray sm" id="impClose">Đóng</button>
+</form>
+<div style="margin-top:6px;font-size:12px;color:var(--mut)">File .xlsx cần có cột <b>MSSV</b>, <b>Họ lót</b>, <b>Tên</b> (hoặc một cột <b>Họ tên</b>); các cột <b>Lớp, Mã lớp, Khóa, Ngành, Khoa</b> có thể để trống. Nhập lại được file đã xuất từ nút "Xuất Excel".</div>
+</div>
+<div class="dt-card">
+<div class="tools"><div class="grow"><input id="q" type="search" placeholder="Tìm MSSV, họ tên… (không cần gõ dấu)"></div>
+<select id="fLop"><option value="">Mã lớp: tất cả</option></select>
+<select id="fKhoaHoc"><option value="">Khóa: tất cả</option></select>
+<select id="fKhoa"><option value="">Khoa: tất cả</option></select>
+<div class="colmenu" id="colMenu"><button type="button" class="btn gray" id="colBtn">Cột ▾</button><div class="pop" id="colPop"></div></div></div>
+<div class="bulk" id="bulkbar"><span>Đã chọn <b id="bulkcount">0</b> sinh viên</span><span class="sp"></span>
+<button type="button" class="btn sm" id="bulkexp">Xuất Excel đã chọn</button><button type="button" class="btn red sm" id="bulkdel">Xóa đã chọn</button><button type="button" class="btn gray sm" id="bulkclear">Bỏ chọn</button></div>
+<table id="tb" class="stripe">
+<thead><tr><th class="nosort"><input type="checkbox" class="chk" id="chkAll" title="Chọn tất cả (theo kết quả lọc)"></th><th class="stt nosort">STT</th>
+<th>MSSV</th><th>Họ lót</th><th>Tên</th><th>Lớp</th><th>Mã lớp</th><th>Khóa</th><th>Ngành</th><th>Khoa</th><th class="nosort"></th></tr></thead>
+<tbody>
+{% for r in rows %}<tr data-mssv="{{ r.mssv }}"><td><input type="checkbox" class="chk" value="{{ r.mssv }}"></td><td></td>
+<td>{{ r.mssv }}</td><td>{{ r.ho_lot }}</td><td>{{ r.ten }}</td><td>{{ r.lop }}</td><td>{{ r.ma_lop }}</td><td>{{ r.khoa_hoc }}</td><td>{{ r.nganh }}</td><td>{{ r.khoa }}</td>
+<td class="act"><button type="button" class="btn gray sm btn-view">Xem</button> <a class="btn sm" href="{{ url_for('sv_sua', mssv=r.mssv) }}">Sửa</a> <button type="button" class="btn red sm btn-del">Xóa</button></td></tr>{% endfor %}
+</tbody></table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const t = initTable('#tb');
+const bulk = bulkSelect(t);
+colFilter(t, '#fLop', 6); colFilter(t, '#fKhoaHoc', 7); colFilter(t, '#fKhoa', 9);
+
+function kpis() {
+  const d = col => new Set(t.column(col).data().toArray().filter(v => String(v).trim())).size;
+  document.getElementById('kpis').innerHTML =
+    [[t.rows().count(), 'Sinh viên'], [d(6), 'Lớp'], [d(7), 'Khóa'], [d(9), 'Khoa']]
+    .map(([n, l]) => '<div class="kpi"><div class="n">' + n + '</div><div class="l">' + l + '</div></div>').join('');
+}
+kpis();
+
+// Hộp nhập Excel
+const impCard = document.getElementById('impCard');
+document.getElementById('btnImp').onclick = () => { impCard.style.display = 'block'; impCard.scrollIntoView({behavior: 'smooth', block: 'center'}); };
+document.getElementById('impClose').onclick = () => { impCard.style.display = 'none'; };
+
+// Xuất Excel theo bộ lọc hiện tại (mã lớp, khóa, khoa, tìm kiếm)
+function capNhatXuat() {
+  const p = new URLSearchParams({lop: $('#fLop').val() || '', kh: $('#fKhoaHoc').val() || '', khoa: $('#fKhoa').val() || '', q: $('#q').val() || ''});
+  document.getElementById('btnExport').href = '{{ url_for("sv_xuat") }}?' + p;
+}
+$('#fLop,#fKhoaHoc,#fKhoa').on('change', capNhatXuat); $('#q').on('input', capNhatXuat);
+
+// Xuất Excel các sinh viên đã tick chọn
+$('#bulkexp').on('click', () => {
+  const ds = bulk.sel(); if (!ds.length) return;
+  const f = document.createElement('form'); f.method = 'post'; f.action = '{{ url_for("sv_xuat_chon") }}';
+  f.innerHTML = '<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="mssvs">';
+  f.querySelector('[name=mssvs]').value = ds.join(',');
+  document.body.appendChild(f); f.submit(); f.remove();
+});
+
+async function xoa(ds, ok) {
+  if (!ds.length) return;
+  if (!ok && !confirm('Xóa ' + ds.length + ' sinh viên cùng toàn bộ điểm rèn luyện, tình trạng và điểm danh của họ?\nKhông thể hoàn tác.')) return;
+  try {
+    const j = await postJSON('{{ url_for("sv_xoa_nhieu") }}', {mssvs: ds});
+    const rows = t.rows(function (i, data, node) { return ds.includes(String(node.dataset.mssv)); });
+    rows.remove().draw(false); bulk.update(); kpis();
+    toast('Đã xóa ' + j.da_xoa + ' sinh viên.', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+}
+$('#bulkdel').on('click', () => xoa(bulk.sel()));
+$('#tb tbody').on('click', '.btn-del', function () { xoa([$(this).closest('tr').attr('data-mssv')]); });
+
+// ---- Ẩn/hiện cột (dùng CSS nên không làm đổi chỉ số cột của bảng/Trợ lý AI)
+const COLS = [[2,'MSSV'],[3,'Họ lót'],[4,'Tên'],[5,'Lớp'],[6,'Mã lớp'],[7,'Khóa'],[8,'Ngành'],[9,'Khoa']];
+const COL_KEY = 'sv_cot_an', colStyle = document.head.appendChild(document.createElement('style'));
+let anCot = [];
+try { anCot = JSON.parse(localStorage.getItem(COL_KEY) || 'null') || [5, 8]; } catch (e) { anCot = [5, 8]; }
+function apCot() {
+  colStyle.textContent = anCot.map(i => '#tb th:nth-child(' + (i + 1) + '),#tb td:nth-child(' + (i + 1) + '){display:none}').join('');
+  try { localStorage.setItem(COL_KEY, JSON.stringify(anCot)); } catch (e) {}
+}
+document.getElementById('colPop').innerHTML = COLS.map(([i, n]) =>
+  '<label><input type="checkbox" data-c="' + i + '"' + (anCot.includes(i) ? '' : ' checked') + '> ' + n + '</label>').join('') +
+  '<div style="margin-top:6px"><a href="#" id="colAll" style="font-size:12px">Hiện tất cả</a></div>';
+document.getElementById('colPop').addEventListener('change', e => {
+  const i = +e.target.dataset.c;
+  anCot = e.target.checked ? anCot.filter(x => x !== i) : [...anCot, i]; apCot();
+});
+document.getElementById('colAll').onclick = e => { e.preventDefault(); anCot = []; apCot();
+  document.querySelectorAll('#colPop input').forEach(c => c.checked = true); };
+document.getElementById('colBtn').onclick = e => { e.stopPropagation(); document.getElementById('colMenu').classList.toggle('open'); };
+document.addEventListener('click', e => { if (!e.target.closest('#colMenu')) document.getElementById('colMenu').classList.remove('open'); });
+apCot();
+
+// ---- Xem hồ sơ sinh viên (drawer)
+const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dong = (k, v) => '<dt>' + k + '</dt><dd>' + (esc(v) || '<span class="empty">—</span>') + '</dd>';
+function dongMo() { document.body.classList.remove('sv-open'); document.getElementById('svDrawer').setAttribute('aria-hidden', 'true'); }
+async function xemSV(mssv) {
+  const body = document.getElementById('svBody');
+  document.getElementById('svName').textContent = 'Đang tải…'; document.getElementById('svSub').textContent = mssv;
+  body.innerHTML = ''; document.body.classList.add('sv-open'); document.getElementById('svDrawer').setAttribute('aria-hidden', 'false');
+  try {
+    const r = await fetch('/api/sinh-vien/' + encodeURIComponent(mssv)); if (!r.ok) throw new Error('Không tải được hồ sơ (' + r.status + ')');
+    const j = await r.json(), sv = j.sinh_vien;
+    document.getElementById('svName').textContent = (sv.ho_lot + ' ' + sv.ten).trim();
+    document.getElementById('svSub').textContent = 'MSSV ' + sv.mssv + (sv.ma_lop ? ' · ' + sv.ma_lop : '');
+    document.getElementById('svEdit').href = '/sinh-vien/' + encodeURIComponent(mssv) + '/sua';
+    document.getElementById('svFull').href = '/tinh-trang/' + encodeURIComponent(mssv) + '/chi-tiet';
+    const tt = j.tinh_trang.length ? '<table><tr><th>Kỳ</th><th>Kết quả</th><th>ĐTB HK</th><th>XL HK</th></tr>' +
+      j.tinh_trang.map(t => '<tr><td>' + esc(t.hoc_ky + ' ' + t.nam_hoc) + '</td><td><span class="tag' + (t.ket_qua !== 'Bình thường' ? ' w' : '') + '">' +
+        esc(t.ket_qua) + '</span></td><td>' + esc(t.dtb_hk) + '</td><td>' + esc(t.xl_hk) + '</td></tr>' +
+        (t.ly_do ? '<tr><td></td><td colspan="3" class="empty">Lý do: ' + esc(t.ly_do) + '</td></tr>' : '')).join('') + '</table>'
+      : '<div class="empty">Chưa có dữ liệu xét tiến độ.</div>';
+    const dr = j.diem_ren_luyen.length ? '<table><tr><th>Kỳ</th><th>Điểm</th><th>Xếp loại</th></tr>' +
+      j.diem_ren_luyen.map(d => '<tr><td>' + esc(d.hoc_ky + ' ' + d.nam_hoc) + '</td><td>' + esc(d.diem) + '</td><td>' + esc(d.xep_loai) + '</td></tr>' + (d.ly_do ? '<tr><td></td><td colspan="2" class="empty">Lý do: ' + esc(d.ly_do) + '</td></tr>' : '')).join('') + '</table>'
+      : '<div class="empty">Chưa có điểm rèn luyện.</div>';
+    body.innerHTML = '<h4>Thông tin cá nhân</h4><dl>' + dong('MSSV', sv.mssv) + dong('Họ lót', sv.ho_lot) + dong('Tên', sv.ten) + dong('Lớp', sv.lop) +
+      dong('Mã lớp', sv.ma_lop) + dong('Khóa', sv.khoa_hoc) + dong('Ngành', sv.nganh) + dong('Khoa', sv.khoa) + '</dl>' +
+      '<h4>Điểm rèn luyện (' + j.diem_ren_luyen.length + ' kỳ)</h4>' + dr +
+      '<h4>Tình trạng học tập (' + j.tinh_trang.length + ' kỳ, ' + j.so_ky_canh_bao + ' kỳ cảnh báo)</h4>' + tt;
+  } catch (err) { document.getElementById('svName').textContent = 'Lỗi'; body.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
+}
+$('#tb tbody').on('click', '.btn-view', function () { xemSV($(this).closest('tr').attr('data-mssv')); });
+$('#tb tbody').on('click', 'td:nth-child(3), td:nth-child(5)', function () { xemSV($(this).closest('tr').attr('data-mssv')); });
+document.getElementById('svClose').onclick = dongMo; document.getElementById('svMask').onclick = dongMo;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') dongMo(); });
+
+// ---- Trợ lý AI
+const infoSv = tr => {
+  const c = i => tr.cells[i].textContent.trim();
+  return {lop: c(6), khoaHoc: c(7), thieu: [6, 7, 8, 9].some(i => !c(i)),
+    text: norm(tr.dataset.mssv + ' ' + c(3) + ' ' + c(4) + ' ' + c(5) + ' ' + c(6) + ' ' + c(8) + ' ' + c(9)).toLowerCase()};
+};
+AI.register({
+  table: t, bulk, noun: 'sinh viên', has: {lop: true, khoaHoc: true}, deleteVerb: 'Xóa (kèm điểm và tình trạng) của', info: infoSv,
+  rules: [{re: /\bthieu( thong tin)?\b/, label: 'Thiếu thông tin', test: i => i.thieu}],
+  actions: {delete: ds => xoa(ds, true), add: () => document.querySelector('.top-actions a.btn').click(),
+    export: () => document.getElementById('btnExport').click()},
+  examples: ['thiếu thông tin', 'khóa 21', 'chọn thiếu thông tin', 'xóa thiếu thông tin', 'thêm sinh viên', 'xuất excel', 'tóm tắt'],
+  insights() {
+    const rows = t.rows().nodes().toArray().map(infoSv), tong = rows.length, out = [];
+    if (!tong) return out;
+    const thieu = rows.filter(r => r.thieu).length;
+    if (thieu) out.push({text: thieu + ' sinh viên thiếu mã lớp, khóa, ngành hoặc khoa.', q: 'thiếu thông tin'});
+    const g = {}; rows.forEach(r => { if (r.lop) g[r.lop] = (g[r.lop] || 0) + 1; });
+    const top = Object.entries(g).sort((a, b) => b[1] - a[1])[0];
+    if (top) out.push({text: 'Lớp ' + top[0] + ' đông nhất với ' + top[1] + ' sinh viên.', q: 'lớp ' + top[0].toLowerCase()});
+    out.push({text: 'Tổng cộng ' + tong + ' sinh viên trong ' + Object.keys(g).length + ' lớp.'});
+    return out;
+  }
+});
+</script>{% endblock %}

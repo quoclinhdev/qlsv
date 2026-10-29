@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Chi tiết sinh viên{% endblock %}
+{% block heading %}Hồ sơ sinh viên{% endblock %}
+{% block actions %}
+<a class="btn gray" href="{{ url_for('tinh_trang', hk=hk, nam=nam) }}">← Về danh sách</a>
+<button type="button" class="btn gray" onclick="window.print()">In hồ sơ</button>
+<a class="btn" href="{{ url_for('sv_sua', mssv=sv.mssv) }}">Sửa thông tin</a>
+{% endblock %}
+{% macro badge(kq) -%}
+<span class="bdg {{ 'ok' if kq==KET_QUA[0] else 'w1' if kq==KET_QUA[1] else 'w2' }}">{{ kq }}</span>
+{%- endmacro %}
+{% macro so2(v) -%}{{ ('%.2f'|format(v)) if v is number else '—' }}{%- endmacro %}
+{% macro no(v) -%}{% if v is number %}<b class="{{ 'neg' if v > 0 else 'zero' }}">{{ v|int }}</b>{% else %}—{% endif %}{%- endmacro %}
+
+{% block body %}
+{% set cur = (ls|selectattr('hoc_ky','equalto',hk)|selectattr('nam_hoc','equalto',nam)|list|first) %}
+<style>
+  .ct{--bd:#e5e7eb;--bg2:#f8fafc;--tx2:#64748b;--pri:#2563eb;--okc:#16a34a;--w1c:#d97706;--w2c:#dc2626;display:block}
+  .ct *{box-sizing:border-box}
+  .ct .panel{background:var(--card,#fff);border:1px solid var(--bd);border-radius:14px;padding:18px 20px;margin-bottom:16px}
+  .ct .panel>h3{margin:0 0 14px;font-size:15px;display:flex;align-items:center;gap:8px}
+  .ct .panel>h3 small{font-weight:400;color:var(--tx2);font-size:12px}
+
+  /* ---- Hồ sơ ---- */
+  .ct .prof{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+  .ct .avt{width:68px;height:68px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;flex:none}
+  .ct .prof .nm{font-size:22px;font-weight:700;line-height:1.2}
+  .ct .prof .sub{color:var(--tx2);margin-top:4px;display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13px}
+  .ct .prof .grow{flex:1;min-width:240px}
+  .ct .prof .now{text-align:right;min-width:170px}
+  .ct .prof .now .lb{font-size:12px;color:var(--tx2);margin-bottom:6px}
+  .ct .facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:0;margin:18px -20px -18px;border-top:1px solid var(--bd)}
+  .ct .fact{padding:12px 20px;border-bottom:1px solid var(--bd);border-right:1px solid var(--bd)}
+  .ct .fact dt{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--tx2);margin:0 0 3px}
+  .ct .fact dd{margin:0;font-weight:600;word-break:break-word}
+
+  /* ---- Thẻ thống kê ---- */
+  .ct .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+  .ct .st{background:var(--card,#fff);border:1px solid var(--bd);border-left:4px solid var(--pri);border-radius:12px;padding:12px 16px}
+  .ct .st .n{font-size:26px;font-weight:700;line-height:1.1}
+  .ct .st .l{font-size:12px;color:var(--tx2);margin-top:2px}
+  .ct .st.w{border-left-color:var(--w1c)} .ct .st.b{border-left-color:var(--w2c)} .ct .st.g{border-left-color:var(--okc)}
+
+  /* ---- Cảnh báo cần xử lý ---- */
+  .ct .alert{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#fef2f2;border:1px solid #fecaca;
+    color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:14px}
+
+  /* ---- Huy hiệu ---- */
+  .ct .bdg{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+  .ct .bdg.ok{background:#dcfce7;color:#166534}
+  .ct .bdg.w1{background:#fef3c7;color:#92400e}
+  .ct .bdg.w2{background:#fee2e2;color:#991b1b}
+
+  /* ---- Bố cục 2 cột ---- */
+  .ct .cols{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+  @media (max-width:980px){.ct .cols{grid-template-columns:1fr}.ct .prof .now{text-align:left}}
+
+  /* ---- Dòng thời gian học kỳ ---- */
+  .ct .tl{position:relative;margin:0;padding:0;list-style:none}
+  .ct .tl::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--bd)}
+  .ct .tl>li{position:relative;padding-left:30px;margin-bottom:14px}
+  .ct .tl>li:last-child{margin-bottom:0}
+  .ct .dot{position:absolute;left:0;top:14px;width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid var(--okc)}
+  .ct .tl>li.w1 .dot{border-color:var(--w1c)} .ct .tl>li.w2 .dot{border-color:var(--w2c)}
+  .ct .kyc{border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--card,#fff)}
+  .ct li.cur .kyc{box-shadow:0 0 0 2px var(--pri)}
+  .ct .kyh{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--bd)}
+  .ct .kyh b{font-size:14px}
+  .ct .kyh .tag{font-size:11px;background:var(--pri);color:#fff;border-radius:999px;padding:2px 8px;margin-left:6px}
+  .ct .mt{display:grid;grid-template-columns:1fr 1fr;gap:0}
+  @media (max-width:560px){.ct .mt{grid-template-columns:1fr}}
+  .ct .mt>div{padding:10px 14px}
+  .ct .mt>div+div{border-left:1px solid var(--bd)}
+  @media (max-width:560px){.ct .mt>div+div{border-left:0;border-top:1px solid var(--bd)}}
+  .ct .mt h4{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--tx2)}
+  .ct .mt .row{display:flex;gap:18px}
+  .ct .mt .m{min-width:48px}
+  .ct .mt .m span{display:block;font-size:11px;color:var(--tx2)}
+  .ct .mt .m b{font-size:16px}
+  .ct b.neg{color:var(--w2c)} .ct b.zero{color:var(--okc)}
+  .ct .ld{padding:10px 14px;border-top:1px solid var(--bd);font-size:13px;display:flex;gap:10px;justify-content:space-between;align-items:flex-start}
+  .ct .ld .tx{flex:1;white-space:pre-line}
+  .ct .ld .lb{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--tx2);display:block;margin-bottom:2px}
+  .ct .ld .miss{color:var(--w2c);font-weight:600}
+  .ct .empty{color:var(--tx2);text-align:center;padding:26px 10px}
+
+  /* ---- Điểm rèn luyện ---- */
+  .ct .drl{width:100%;border-collapse:collapse;font-size:13px}
+  .ct .drl th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--tx2);text-align:left;padding:6px 4px;border-bottom:1px solid var(--bd)}
+  .ct .drl td{padding:8px 4px;border-bottom:1px solid var(--bd)}
+  .ct .drl tr:last-child td{border-bottom:0}
+  .ct .drl .d{font-weight:700;font-size:15px}
+
+  @media print{
+    .ct .btn,.ct .alert a,nav,header .actions{display:none !important}
+    .ct .panel,.ct .kyc,.ct .st{break-inside:avoid;box-shadow:none !important}
+    .ct .cols{grid-template-columns:1fr}
+  }
+</style>
+
+<div class="ct">
+
+  <!-- Hồ sơ -->
+  <div class="panel">
+    <div class="prof">
+      <div class="avt">{{ (sv.ten or '?')[:1]|upper }}</div>
+      <div class="grow">
+        <div class="nm">{{ sv.ho_lot }} {{ sv.ten }}</div>
+        <div class="sub"><span>MSSV: <b>{{ sv.mssv }}</b></span>{% if sv.ma_lop %}<span>Lớp: <b>{{ sv.ma_lop }}</b></span>{% endif %}{% if sv.khoa_hoc %}<span>Khóa: <b>{{ sv.khoa_hoc }}</b></span>{% endif %}</div>
+      </div>
+      <div class="now">
+        <div class="lb">Kết quả xét tiến độ {{ hk }} · {{ nam }}</div>
+        {% if cur %}{{ badge(cur.ket_qua) }}{% else %}<span class="bdg" style="background:#f1f5f9;color:#475569">Chưa có dữ liệu</span>{% endif %}
+      </div>
+    </div>
+    <dl class="facts">
+      {% for lb, k in [('Lớp','lop'),('Mã lớp','ma_lop'),('Khóa học','khoa_hoc'),('Ngành','nganh'),('Khoa','khoa')] %}
+      <div class="fact"><dt>{{ lb }}</dt><dd>{{ sv[k] or '—' }}</dd></div>
+      {% endfor %}
+    </dl>
+  </div>
+
+  <!-- Nhắc việc -->
+  {% if tk.thieu_ly_do %}
+  <div class="alert">
+    <span><b>{{ tk.thieu_ly_do }}</b> học kỳ bị cảnh báo nhưng chưa có lý do. Cần bổ sung để hoàn thiện hồ sơ.</span>
+  </div>
+  {% endif %}
+
+  <!-- Thống kê -->
+  <div class="stats">
+    <div class="st"><div class="n">{{ tk.so_ky }}</div><div class="l">Học kỳ được xét tiến độ</div></div>
+    <div class="st g"><div class="n">{{ tk.so_ky - tk.canh_bao }}</div><div class="l">Học kỳ bình thường</div></div>
+    <div class="st w"><div class="n">{{ tk.canh_bao }}</div><div class="l">Học kỳ bị cảnh báo</div></div>
+    <div class="st b"><div class="n">{{ tk.thieu_ly_do }}</div><div class="l">Cảnh báo chưa có lý do</div></div>
+  </div>
+
+  <div class="cols">
+    <!-- Tình trạng qua các học kỳ -->
+    <div class="panel">
+      <h3>Tình trạng qua các học kỳ <small>mới nhất ở trên</small></h3>
+      {% if ls %}
+      <ul class="tl">
+        {% for r in ls %}
+        {% set is_cur = (r.hoc_ky==hk and r.nam_hoc==nam) %}
+        <li class="{{ 'w1' if r.ket_qua==KET_QUA[1] else 'w2' if r.ket_qua==KET_QUA[2] }}{{ ' cur' if is_cur }}">
+          <span class="dot"></span>
+          <div class="kyc">
+            <div class="kyh">
+              <span><b>{{ r.hoc_ky }} · {{ r.nam_hoc }}</b>{% if is_cur %}<span class="tag">Đang xem</span>{% endif %}</span>
+              {{ badge(r.ket_qua) }}
+            </div>
+            <div class="mt">
+              <div><h4>Học kỳ</h4><div class="row">
+                <div class="m"><span>ĐTB</span><b>{{ so2(r.dtb_hk) }}</b></div>
+                <div class="m"><span>Xếp loại</span><b>{{ r.xl_hk or '—' }}</b></div>
+                <div class="m"><span>STC nợ</span>{{ no(r.no_hk) }}</div></div></div>
+              <div><h4>Tích lũy</h4><div class="row">
+                <div class="m"><span>ĐTB</span><b>{{ so2(r.dtb_tl) }}</b></div>
+                <div class="m"><span>Xếp loại</span><b>{{ r.xl_tl or '—' }}</b></div>
+                <div class="m"><span>STC nợ</span>{{ no(r.no_tl) }}</div></div></div>
+            </div>
+            {% if r.ly_do or r.ket_qua != KET_QUA[0] %}
+            <div class="ld">
+              <div class="tx"><span class="lb">Lý do</span>{% if r.ly_do %}{{ r.ly_do }}{% else %}<span class="miss">Chưa có lý do</span>{% endif %}</div>
+              <a class="btn sm" href="{{ url_for('tt_sua', mssv=sv.mssv, hk=r.hoc_ky, nam=r.nam_hoc) }}">{{ 'Sửa' if r.ly_do else 'Nhập lý do' }}</a>
+            </div>
+            {% else %}
+            <div class="ld" style="justify-content:flex-end;padding:8px 14px">
+              <a class="btn gray sm" href="{{ url_for('tt_sua', mssv=sv.mssv, hk=r.hoc_ky, nam=r.nam_hoc) }}">Sửa</a>
+            </div>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="empty">Sinh viên chưa có dữ liệu xét tiến độ học tập.<br><br>
+        <a class="btn sm" href="{{ url_for('tt_sua', mssv=sv.mssv, hk=hk, nam=nam) }}">+ Thêm tình trạng {{ hk }} · {{ nam }}</a></div>
+      {% endif %}
+    </div>
+
+    <!-- Điểm rèn luyện -->
+    <div class="panel">
+      <h3>Điểm rèn luyện</h3>
+      {% if drl %}
+      <table class="drl">
+        <thead><tr><th>Học kỳ</th><th>Điểm</th><th>Xếp loại</th></tr></thead>
+        <tbody>{% for r in drl %}<tr><td>{{ r.hoc_ky }}<br><span style="color:var(--tx2);font-size:12px">{{ r.nam_hoc }}</span></td><td class="d">{{ r.diem }}</td><td>{{ r.xep_loai }}</td></tr>{% endfor %}</tbody>
+      </table>
+      {% else %}<div class="empty">Chưa có điểm rèn luyện.</div>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

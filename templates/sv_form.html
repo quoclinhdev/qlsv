@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block body %}
+<form method="post" class="card"><h2>{{ 'Thêm' if moi else 'Sửa' }} sinh viên</h2><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+{% for k,l in [('mssv','MSSV'),('ho_lot','Họ lót'),('ten','Tên'),('lop','Lớp'),('ma_lop','Mã lớp'),('khoa_hoc','Khóa'),('nganh','Ngành'),('khoa','Khoa')] %}
+<label>{{ l }}</label><input name="{{ k }}" value="{{ sv[k] or '' }}" {{ 'readonly' if k=='mssv' and not moi }} {{ 'required' if k=='mssv' }}>{% endfor %}
+<p><button class="btn">Lưu</button> <a class="btn gray" href="{{ url_for('sinh_vien') }}">Hủy</a></p></form>{% endblock %}
